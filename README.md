@@ -17,4 +17,4 @@ npm run dev                  # open http://localhost:3000
 Hosted on Vercel from this GitHub repo; every push to `main` redeploys. The Vercel project needs:
 
 - `GEMINI_API_KEY` environment variable
-- An Upstash Redis database connected through the Vercel Marketplace (adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`)
+- A Neon Postgres database connected through the Vercel Marketplace (adds `DATABASE_URL`). Tables are created automatically.

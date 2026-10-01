@@ -3,14 +3,12 @@ import path from "path";
 import { randomBytes } from "crypto";
 import type { Group, StoredGroup, StoredMember } from "./types";
 
-// Groups are stored in the Upstash Redis database connected to the Vercel project when it's set up,
-// and in a local JSON file otherwise (for running on your own computer).
-//
-// In Redis, each group is two keys: `group:<id>` holds the settings, and the hash `group:<id>:members`
-// holds one field per person. Saving a person only touches their own field, so two people saving at
-// the same moment can't overwrite each other.
+import { neon } from "@neondatabase/serverless";
 
-const TTL_SECONDS = 180 * 24 * 60 * 60; // Groups disappear six months after their last change.
+// Groups are stored in the Neon Postgres database connected to the Vercel project when it's set up
+// (DATABASE_URL), and in a local JSON file otherwise (for running on your own computer).
+//
+// Each person's schedule is its own row, so two people saving at the same moment can't overwrite each other.
 
 export function newId(bytes = 6): string {
   return randomBytes(bytes).toString("base64url");
@@ -23,31 +21,31 @@ export function toPublic(group: StoredGroup): Group {
   };
 }
 
-// --- Redis ---
+// --- Postgres ---
 
-function redisConfig() {
-  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  return url && token ? { url: url.replace(/\/$/, ""), token } : null;
-}
+const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 
-async function pipeline(commands: (string | number)[][]): Promise<unknown[]> {
-  const config = redisConfig()!;
-  const res = await fetch(`${config.url}/pipeline`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-    body: JSON.stringify(commands),
-    signal: AbortSignal.timeout(8000),
+let schemaReady: Promise<unknown> | null = null;
+function ensureSchema() {
+  schemaReady ??= (async () => {
+    await sql!`CREATE TABLE IF NOT EXISTS groups (
+      id text PRIMARY KEY,
+      settings jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql!`CREATE TABLE IF NOT EXISTS members (
+      group_id text NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      id text NOT NULL,
+      data jsonb NOT NULL,
+      added_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (group_id, id)
+    )`;
+  })().catch((err) => {
+    schemaReady = null;
+    throw err;
   });
-  if (!res.ok) throw new Error(`storage ${res.status}`);
-  const results: { result?: unknown; error?: string }[] = await res.json();
-  const failed = results.find((r) => r.error);
-  if (failed) throw new Error(`storage ${failed.error}`);
-  return results.map((r) => r.result);
+  return schemaReady;
 }
-
-const groupKey = (id: string) => `group:${id}`;
-const membersKey = (id: string) => `group:${id}:members`;
 
 // --- Local file ---
 
@@ -80,32 +78,32 @@ function changeFile<T>(change: (all: Record<string, StoredGroup>) => T): Promise
 // --- Shared interface ---
 
 export async function getGroup(id: string): Promise<StoredGroup | null> {
-  if (!redisConfig()) return (await readFile())[id] ?? null;
-  const [settings, members] = (await pipeline([
-    ["GET", groupKey(id)],
-    ["HVALS", membersKey(id)],
-  ])) as [string | null, string[]];
-  if (!settings) return null;
-  const parsed = (members ?? []).map((m) => JSON.parse(m) as StoredMember);
-  parsed.sort((a, b) => (a.addedAt ?? "").localeCompare(b.addedAt ?? ""));
-  return { ...JSON.parse(settings), members: parsed };
+  if (!sql) return (await readFile())[id] ?? null;
+  await ensureSchema();
+  const rows = await sql`
+    SELECT g.settings,
+      COALESCE((SELECT json_agg(m.data ORDER BY m.added_at) FROM members m WHERE m.group_id = g.id), '[]') AS members
+    FROM groups g WHERE g.id = ${id}`;
+  if (rows.length === 0) return null;
+  return { ...(rows[0].settings as Omit<StoredGroup, "members">), members: rows[0].members as StoredMember[] };
 }
 
 export async function createGroup(group: StoredGroup): Promise<void> {
-  if (!redisConfig()) {
+  if (!sql) {
     await changeFile((all) => {
       all[group.id] = group;
     });
     return;
   }
+  await ensureSchema();
   const settings: Omit<StoredGroup, "members"> & { members?: unknown } = { ...group };
   delete settings.members;
-  await pipeline([["SET", groupKey(group.id), JSON.stringify(settings), "EX", TTL_SECONDS]]);
+  await sql`INSERT INTO groups (id, settings) VALUES (${group.id}, ${JSON.stringify(settings)})`;
 }
 
 // Adds or replaces one person's schedule in a group.
 export async function saveMember(groupId: string, member: StoredMember): Promise<void> {
-  if (!redisConfig()) {
+  if (!sql) {
     await changeFile((all) => {
       const group = all[groupId];
       if (!group) return;
@@ -115,9 +113,9 @@ export async function saveMember(groupId: string, member: StoredMember): Promise
     });
     return;
   }
-  await pipeline([
-    ["HSET", membersKey(groupId), member.id, JSON.stringify(member)],
-    ["EXPIRE", groupKey(groupId), TTL_SECONDS],
-    ["EXPIRE", membersKey(groupId), TTL_SECONDS],
-  ]);
+  await ensureSchema();
+  await sql`
+    INSERT INTO members (group_id, id, data) VALUES (${groupId}, ${member.id}, ${JSON.stringify(member)})
+    ON CONFLICT (group_id, id) DO UPDATE SET data = EXCLUDED.data`;
+  await sql`UPDATE groups SET updated_at = now() WHERE id = ${groupId}`;
 }

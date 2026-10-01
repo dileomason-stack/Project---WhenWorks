@@ -10,9 +10,10 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
 - Screenshot reading needs `GEMINI_API_KEY` in `.env.local` (free tier, see `.env.example`).
 - Schedules are a repeating week: days 0 = Mon … 6 = Sun, times in minutes after midnight (`src/lib/types.ts`).
 - Free-time math lives in `src/lib/schedule.ts` (15-minute slots; a slot is free only if fully free).
-- Storage (`src/lib/store.ts`): Upstash Redis when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set (Vercel),
-  otherwise a local JSON file (`data/groups.json`, gitignored). In Redis each person is one hash field, so
-  concurrent saves don't clobber each other.
+- Storage (`src/lib/store.ts`): Neon Postgres when `DATABASE_URL` is set (Vercel Marketplace), otherwise a
+  local JSON file (`data/groups.json`, gitignored). Tables `groups` and `members` are created on first use;
+  each person is one row, so concurrent saves don't clobber each other. (Not Upstash: the account's one free
+  Upstash database belongs to the Homeroom project and holds its login records.)
 - Each schedule gets a secret `editKey`. The browser that added it keeps the key in localStorage
   (`whenworks:<groupId>` → `{ members: [...] }`, first entry is "you"), so people can also add and edit
   schedules for friends who just send them a screenshot.
