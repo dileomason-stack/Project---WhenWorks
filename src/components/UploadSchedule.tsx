@@ -26,6 +26,7 @@ async function prepareImage(file: File): Promise<{ base64: string; mimeType: str
       const el = new Image();
       el.onload = () => resolve(el);
       el.onerror = () => reject(new Error("Couldn't open that image. Try a PNG or JPG screenshot."));
+      setTimeout(() => reject(new Error("Couldn't open that image. Try a PNG or JPG screenshot.")), 15_000);
       el.src = url;
     });
     const maxPixels = 4_000_000;
@@ -70,6 +71,9 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64, mimeType }),
+          signal: AbortSignal.timeout(120_000),
+        }).catch(() => {
+          throw new Error("Reading took too long. Check your connection and try again.");
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);

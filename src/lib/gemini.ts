@@ -55,27 +55,42 @@ export async function readScheduleScreenshot(
   if (!apiKey) {
     throw new ScreenshotError("Screenshot reading isn't set up yet (the site is missing its Gemini key).", 503);
   }
-  const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
-
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: imageBase64 } }, { text: PROMPT }] }],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-      },
-    }),
+  const body = JSON.stringify({
+    contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: imageBase64 } }, { text: PROMPT }] }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
+    },
   });
 
-  if (res.status === 429) {
+  // The free tier is sometimes overloaded, so retry once and then fall back to the lighter model.
+  const attempts = [process.env.GEMINI_MODEL || "gemini-flash-latest", "gemini-flash-latest", "gemini-flash-lite-latest"];
+  let res: Response | null = null;
+  for (const [i, model] of attempts.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1000));
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body,
+        signal: AbortSignal.timeout(40_000),
+      });
+    } catch (err) {
+      console.error("Gemini request failed", model, err);
+      res = null;
+      continue;
+    }
+    if (res.ok || ![429, 500, 503].includes(res.status)) break;
+    console.error("Gemini busy", model, res.status);
+  }
+
+  if (res?.status === 429) {
     throw new ScreenshotError("The screenshot reader is busy right now. Wait a minute and try again.", 429);
   }
-  if (!res.ok) {
-    console.error("Gemini error", res.status, await res.text());
-    throw new ScreenshotError("Couldn't read that screenshot. Try again in a moment.", 502);
+  if (!res?.ok) {
+    if (res) console.error("Gemini error", res.status, await res.text());
+    throw new ScreenshotError("Google's screenshot reader is busy right now. Try again in a moment.", 502);
   }
 
   const data = await res.json();
