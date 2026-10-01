@@ -19,7 +19,14 @@ export function toPublic(group: StoredGroup): Group {
   void _adminKey;
   return {
     ...rest,
-    members: group.members.map(({ id, name, busy, updatedAt }) => ({ id, name, busy, updatedAt })),
+    members: group.members.map(({ id, name, busy, updatedAt, shareDetails }) => ({
+      id,
+      name,
+      // Event names stay private unless the person chose to share them.
+      busy: shareDetails ? busy : busy.map(({ label: _label, ...b }) => (void _label, b)),
+      updatedAt,
+      shareDetails: !!shareDetails,
+    })),
   };
 }
 
@@ -68,6 +75,11 @@ function ensureSchema() {
       PRIMARY KEY (group_id, proposal_id, member_id),
       FOREIGN KEY (group_id, proposal_id) REFERENCES proposals(group_id, id) ON DELETE CASCADE
     )`;
+    await sql!`CREATE TABLE IF NOT EXISTS screenshot_reads (
+      who text NOT NULL,
+      at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql!`CREATE INDEX IF NOT EXISTS screenshot_reads_who_at ON screenshot_reads (who, at)`;
   })().catch((err) => {
     schemaReady = null;
     throw err;
@@ -159,6 +171,18 @@ export async function updateSettings(id: string, changes: Partial<Settings>): Pr
   }
   const q = await db();
   await q`UPDATE groups SET settings = settings || ${JSON.stringify(changes)}::jsonb, updated_at = now() WHERE id = ${id}`;
+}
+
+// Removes one setting from a group (like the group size, when the creator picks "Not sure yet").
+export async function clearSetting(id: string, key: "expectedCount"): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      if (all[id]) delete all[id][key];
+    });
+    return;
+  }
+  const q = await db();
+  await q`UPDATE groups SET settings = settings - ${key}::text WHERE id = ${id}`;
 }
 
 // Deletes a group along with everyone's schedules, suggested times and votes.
@@ -267,4 +291,32 @@ export async function setMeeting(groupId: string, meeting: Meeting | null): Prom
   }
   const q = await db();
   await q`UPDATE groups SET meeting = ${meeting ? JSON.stringify(meeting) : null}::jsonb, updated_at = now() WHERE id = ${groupId}`;
+}
+
+// --- Screenshot reading limit ---
+
+const localReads = new Map<string, number[]>();
+
+// Counts a screenshot read for one person (`who` is a scrambled id, never their real address) unless they
+// already hit `limit` in the past hour. Returns whether it's allowed and, if not, when the oldest read
+// in the window expires.
+export async function takeScreenshotRead(who: string, limit: number): Promise<{ ok: boolean; retryAt?: Date }> {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  if (!sql) {
+    const recent = (localReads.get(who) ?? []).filter((t) => t > hourAgo);
+    if (recent.length >= limit) return { ok: false, retryAt: new Date(recent[0] + 60 * 60 * 1000) };
+    localReads.set(who, [...recent, Date.now()]);
+    return { ok: true };
+  }
+  const q = await db();
+  const rows = await q`
+    SELECT count(*)::int AS n, min(at) AS oldest FROM screenshot_reads
+    WHERE who = ${who} AND at > now() - interval '1 hour'`;
+  if (rows[0].n >= limit) {
+    return { ok: false, retryAt: new Date(new Date(rows[0].oldest).getTime() + 60 * 60 * 1000) };
+  }
+  await q`INSERT INTO screenshot_reads (who) VALUES (${who})`;
+  // Now and then, clear out records older than a day so the table stays tiny.
+  if (Math.random() < 0.05) await q`DELETE FROM screenshot_reads WHERE at < now() - interval '1 day'`;
+  return { ok: true };
 }

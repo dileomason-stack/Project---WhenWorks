@@ -15,7 +15,7 @@ interface Props {
   group: Group;
   owners: Owner[]; // Schedules this browser added (yours first), which it can vote for.
   isAdmin: boolean;
-  plan: (action: string, payload?: Record<string, unknown>) => Promise<void>;
+  plan: (action: string, payload?: Record<string, unknown>) => Promise<boolean>;
 }
 
 // Suggested times, votes, and the confirmed meeting with its calendar buttons.

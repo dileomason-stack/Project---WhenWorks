@@ -11,7 +11,8 @@ interface Props {
   forOther?: boolean;
   initialName?: string;
   initialBusy?: BusyBlock[];
-  onSave: (name: string, busy: BusyBlock[]) => Promise<void>;
+  initialShareDetails?: boolean;
+  onSave: (name: string, busy: BusyBlock[], shareDetails: boolean) => Promise<void>;
   onCancel?: () => void;
 }
 
@@ -53,7 +54,15 @@ async function prepareImage(file: File): Promise<{ base64: string; mimeType: str
   }
 }
 
-export default function UploadSchedule({ forOther = false, initialName = "", initialBusy = [], onSave, onCancel }: Props) {
+export default function UploadSchedule({
+  forOther = false,
+  initialName = "",
+  initialBusy = [],
+  initialShareDetails = false,
+  onSave,
+  onCancel,
+}: Props) {
+  const [shareDetails, setShareDetails] = useState(initialShareDetails);
   const [name, setName] = useState(initialName);
   const [blocks, setBlocks] = useState<EditableBlock[]>(() => initialBusy.map((b) => ({ ...b, uid: newUid() })));
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
@@ -121,6 +130,7 @@ export default function UploadSchedule({ forOther = false, initialName = "", ini
       await onSave(
         name.trim(),
         sortBlocks(blocks.map(({ day, start, end, label, date }) => ({ day, start, end, label, ...(date ? { date } : {}) }))),
+        shareDetails,
       );
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't save. Try again.");
@@ -298,6 +308,8 @@ export default function UploadSchedule({ forOther = false, initialName = "", ini
           notes={notes}
           forOther={forOther}
           name={name}
+          shareDetails={shareDetails}
+          setShareDetails={setShareDetails}
           setName={setName}
           saving={saving}
           error={error}

@@ -41,6 +41,8 @@ export interface Member {
   name: string;
   busy: BusyBlock[];
   updatedAt: string;
+  // Whether the group can see event names. Off by default: others only see when someone is busy.
+  shareDetails?: boolean;
 }
 
 export interface Group {

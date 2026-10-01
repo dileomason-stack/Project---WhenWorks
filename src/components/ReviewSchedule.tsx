@@ -13,6 +13,8 @@ interface Props {
   setBlocks: (update: (prev: EditableBlock[]) => EditableBlock[]) => void;
   notes: string[];
   forOther: boolean;
+  shareDetails: boolean;
+  setShareDetails: (value: boolean) => void;
   name: string;
   setName: (name: string) => void;
   saving: boolean;
@@ -31,6 +33,8 @@ export default function ReviewSchedule({
   setBlocks,
   notes,
   forOther,
+  shareDetails,
+  setShareDetails,
   name,
   setName,
   saving,
@@ -206,6 +210,20 @@ export default function ReviewSchedule({
         <Button variant="secondary" onClick={onAddScreenshot}>
           + Add another screenshot
         </Button>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
+          <input
+            type="checkbox"
+            checked={shareDetails}
+            onChange={(e) => setShareDetails(e.target.checked)}
+            className="h-4 w-4 accent-emerald-600"
+          />
+          <span>
+            Show event names to the group
+            <span className="block text-xs text-stone-400">
+              {shareDetails ? "Everyone sees what each event is." : "Off: the group only sees that you're busy."}
+            </span>
+          </span>
+        </label>
         <div className="flex flex-1 items-center justify-end gap-3">
           {error && <span className="text-sm text-red-600">{error}</span>}
           <Button onClick={onSave} disabled={saving || invalid || !name.trim()} className="w-full sm:w-auto">

@@ -27,6 +27,11 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
   member and need that member's edit key; the creator's `adminKey` can confirm anytime, others once everyone
   said yes. The confirmed meeting has a Google Calendar link and `/api/groups/[id]/invite.ics` (Apple/Outlook).
   Online groups get a "Create a Google Meet" button (opens meet.google.com/new; the user pastes the link back) with a free Jitsi link as a fallback. Auto-creating Meet links would need Google OAuth + app verification, deliberately skipped. Times use the creator's `timeZone`.
+- Event names are private by default: `toPublic` strips labels unless the member set `shareDetails`; owners
+  load their own full schedule from `/api/groups/[id]/members/mine` with their edit key.
+- Screenshot reading is capped at 10 per hour per person (hashed IP, `screenshot_reads` table) so nobody can
+  burn through the free Gemini allowance.
+- The creator can change group settings (`settings` action); the form fields are shared in `GroupFields`.
 - The home page lists "Your groups" from localStorage (`src/lib/recent.ts`).
 
 Possible next: Google Calendar / Apple .ics import as a backup to screenshots.

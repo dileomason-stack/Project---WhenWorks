@@ -8,7 +8,9 @@ import {
   setVote,
   toPublic,
   updateSettings,
+  clearSetting,
 } from "@/lib/store";
+import { parseGroupSettings } from "@/lib/groupSettings";
 import type { StoredGroup, Vote } from "@/lib/types";
 
 // Everything about settling on a time, in one place:
@@ -18,6 +20,7 @@ import type { StoredGroup, Vote } from "@/lib/types";
 //   confirm    lock in a suggestion as the meeting (the creator any time, anyone once everyone said yes)
 //   unconfirm  reopen picking a time (the creator)
 //   size       set how many people are in the group (the creator)
+//   settings   change the group's name, meeting type, length, days and hours (the creator)
 export async function POST(request: Request, ctx: RouteContext<"/api/groups/[id]/plan">) {
   const { id } = await ctx.params;
   const body = await request.json().catch(() => null);
@@ -90,6 +93,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/groups/[id]
       const count = Number(body.expectedCount);
       if (!Number.isInteger(count) || count < 2 || count > 30) return fail("Pick between 2 and 30 people.");
       await updateSettings(id, { expectedCount: count });
+      break;
+    }
+    case "settings": {
+      if (!isAdmin) return fail("Only the person who made this group can change its settings.", 403);
+      const parsed = parseGroupSettings(body.settings);
+      if ("error" in parsed) return fail(parsed.error);
+      await updateSettings(id, parsed.settings);
+      // "Not sure yet" has to remove the old group size, since leaving it out would keep it.
+      if (!parsed.settings.expectedCount) await clearSetting(id, "expectedCount");
       break;
     }
     default:

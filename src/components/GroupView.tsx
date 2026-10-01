@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import UploadSchedule from "./UploadSchedule";
+import GroupFields from "./GroupFields";
 import OverlapView from "./OverlapView";
 import PlanCard from "./PlanCard";
 import WeekGrid from "./WeekGrid";
 import { Button, Card, Spinner } from "./ui";
 import { addDays, formatShortDate, mondayOf, toISODate } from "@/lib/dates";
+import type { GroupSettings } from "@/lib/groupSettings";
 import { forgetGroup, rememberGroup } from "@/lib/recent";
 import { formatRange, freeRangesFor, groupForWeek } from "@/lib/schedule";
 import { DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
@@ -63,6 +65,13 @@ export default function GroupView({ id }: { id: string }) {
   const [focusId, setFocusId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<"free" | "overlap">("free");
+  // The creator's settings form, while it's open.
+  const [settingsDraft, setSettingsDraft] = useState<GroupSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  // Your own copy of a schedule you're editing, with its private event names.
+  const [fullSchedule, setFullSchedule] = useState<{ busy: BusyBlock[]; shareDetails: boolean } | "unavailable" | null>(
+    null,
+  );
   // Which week the calendar shows: 0 = this week, 1 = next week, and so on.
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -90,6 +99,25 @@ export default function GroupView({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, [id, refresh]);
 
+  useEffect(() => {
+    const owner = [saved.self, ...saved.others].find((o) => o && o.memberId === editing);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the old schedule before loading the next one
+    setFullSchedule(null);
+    if (!owner) return;
+    let cancelled = false;
+    fetch(`/api/groups/${id}/members/mine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(owner),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => !cancelled && setFullSchedule(data ?? "unavailable"))
+      .catch(() => !cancelled && setFullSchedule("unavailable"));
+    return () => {
+      cancelled = true;
+    };
+  }, [editing, id, saved]);
+
   const memberById = (memberId?: string) => group?.members.find((m) => m.id === memberId) ?? null;
   const myMember = memberById(saved.self?.memberId);
   const addedForOthers = saved.others.flatMap((o) => memberById(o.memberId) ?? []);
@@ -101,11 +129,17 @@ export default function GroupView({ id }: { id: string }) {
     storeSaved(id, next);
   }
 
-  async function save(name: string, busy: BusyBlock[], existing: Owned | null, forOther: boolean) {
+  async function save(
+    name: string,
+    busy: BusyBlock[],
+    shareDetails: boolean,
+    existing: Owned | null,
+    forOther: boolean,
+  ) {
     const res = await fetch(`/api/groups/${id}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, busy, memberId: existing?.memberId, editKey: existing?.editKey }),
+      body: JSON.stringify({ name, busy, shareDetails, memberId: existing?.memberId, editKey: existing?.editKey }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -161,8 +195,12 @@ export default function GroupView({ id }: { id: string }) {
       body: JSON.stringify({ action, adminKey: saved.adminKey, ...payload }),
     });
     const data = await res.json();
-    if (!res.ok) return setActionError(data.error);
+    if (!res.ok) {
+      setActionError(data.error);
+      return false;
+    }
     setGroup(data.group);
+    return true;
   }
 
   async function suggest(date: string, start: number, end: number) {
@@ -223,7 +261,29 @@ export default function GroupView({ id }: { id: string }) {
             {group.days.map((d) => DAY_SHORT[d]).join(", ")}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {saved.adminKey && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setSettingsDraft(
+                  settingsDraft
+                    ? null
+                    : {
+                        name: group.name,
+                        mode: group.mode,
+                        meetingMinutes: group.meetingMinutes,
+                        days: group.days,
+                        dayStart: group.dayStart,
+                        dayEnd: group.dayEnd,
+                        expectedCount: group.expectedCount,
+                      },
+                )
+              }
+            >
+              ⚙ Settings
+            </Button>
+          )}
           <Link
             href="/"
             className="inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-100 hover:text-stone-900"
@@ -236,12 +296,41 @@ export default function GroupView({ id }: { id: string }) {
         </div>
       </header>
 
+      {settingsDraft && (
+        <Card className="mt-6 space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold">Group settings</h2>
+            <p className="text-sm text-stone-500">Only you can change these because you made the group.</p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <GroupFields value={settingsDraft} onChange={(patch) => setSettingsDraft((d) => (d ? { ...d, ...patch } : d))} />
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actionError && <span className="mr-auto text-sm text-red-600">{actionError}</span>}
+            <Button variant="secondary" onClick={() => setSettingsDraft(null)} disabled={savingSettings}>
+              Cancel
+            </Button>
+            <Button
+              disabled={savingSettings || !settingsDraft.name.trim() || settingsDraft.days.length === 0}
+              onClick={async () => {
+                setSavingSettings(true);
+                const ok = await plan("settings", { settings: settingsDraft });
+                setSavingSettings(false);
+                if (ok) setSettingsDraft(null);
+              }}
+            >
+              {savingSettings && <Spinner />} Save settings
+            </Button>
+          </div>
+        </Card>
+      )}
+
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="space-y-6">
           {!myMember ? (
             <div>
               <h2 className="mb-3 text-lg font-semibold">Add your schedule</h2>
-              <UploadSchedule key="self" onSave={(name, busy) => save(name, busy, null, false)} />
+              <UploadSchedule key="self" onSave={(name, busy, share) => save(name, busy, share, null, false)} />
             </div>
           ) : editing ? (
             <div>
@@ -257,14 +346,21 @@ export default function GroupView({ id }: { id: string }) {
                   Did someone send you a screenshot instead of opening the link? Upload it here with their name.
                 </p>
               )}
-              <UploadSchedule
-                key={editing}
-                forOther={!isEditingSelf}
-                initialName={editingMember?.name}
-                initialBusy={editingMember?.busy}
-                onSave={(name, busy) => save(name, busy, editingOwned, !isEditingSelf)}
-                onCancel={() => setEditing(null)}
-              />
+              {editing !== "new" && !fullSchedule ? (
+                <Card className="flex justify-center py-10 text-stone-500">
+                  <Spinner />
+                </Card>
+              ) : (
+                <UploadSchedule
+                  key={editing}
+                  forOther={!isEditingSelf}
+                  initialName={editingMember?.name}
+                  initialBusy={fullSchedule === "unavailable" ? editingMember?.busy : fullSchedule?.busy}
+                  initialShareDetails={fullSchedule === "unavailable" ? editingMember?.shareDetails : fullSchedule?.shareDetails}
+                  onSave={(name, busy, share) => save(name, busy, share, editingOwned, !isEditingSelf)}
+                  onCancel={() => setEditing(null)}
+                />
+              )}
               {editingOwned && (
                 <button
                   onClick={() => removeSchedule(editingOwned)}
@@ -444,7 +540,7 @@ function People({
   focusId: string | null;
   setFocusId: (id: string | null) => void;
   isAdmin: boolean;
-  plan: (action: string, payload?: Record<string, unknown>) => Promise<void>;
+  plan: (action: string, payload?: Record<string, unknown>) => Promise<boolean>;
 }) {
   const focus = group.members.find((m) => m.id === focusId);
   const [copied, setCopied] = useState(false);
