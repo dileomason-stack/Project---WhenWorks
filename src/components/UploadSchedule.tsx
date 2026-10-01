@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type EditableBlock } from "./CalendarMockup";
+import ReviewSchedule, { newUid } from "./ReviewSchedule";
 import { Button, Card, Spinner } from "./ui";
-import { formatRange, fromHHMM, toHHMM } from "@/lib/schedule";
-import { DAY_NAMES, type BusyBlock } from "@/lib/types";
+import type { BusyBlock } from "@/lib/types";
 
 interface Props {
   initialName?: string;
@@ -47,20 +48,22 @@ async function prepareImage(file: File): Promise<{ base64: string; mimeType: str
 
 export default function UploadSchedule({ initialName = "", initialBusy = [], onSave, onCancel }: Props) {
   const [name, setName] = useState(initialName);
-  const [blocks, setBlocks] = useState<BusyBlock[]>(initialBusy);
+  const [blocks, setBlocks] = useState<EditableBlock[]>(() => initialBusy.map((b) => ({ ...b, uid: newUid() })));
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  const [reviewing, setReviewing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const reading = screenshots.some((s) => s.status === "reading");
-  // The review list appears once a screenshot has been tried, so a failed read can still be fixed by hand.
-  const hasRead = screenshots.some((s) => s.status !== "reading") || initialBusy.length > 0;
+  // Review opens once a screenshot has been tried, so a failed read can still be fixed by hand.
+  const canReview = screenshots.some((s) => s.status !== "reading") || initialBusy.length > 0;
 
   const addFiles = useCallback(async (files: File[]) => {
-    for (const file of files.filter((f) => f.type.startsWith("image/"))) {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    for (const file of images) {
       const shot: Screenshot = { url: URL.createObjectURL(file), status: "reading" };
       setScreenshots((prev) => [...prev, shot]);
       const update = (patch: Partial<Screenshot>) =>
@@ -71,7 +74,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64, mimeType }),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(180_000),
         }).catch(() => {
           throw new Error("Reading took too long. Check your connection and try again.");
         });
@@ -81,8 +84,9 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
         if (data.notes) setNotes((prev) => [...prev, data.notes]);
         update({
           status: "done",
-          message: data.blocks.length === 0 ? "No busy times found in this one." : `Found ${data.blocks.length} busy blocks`,
+          message: data.blocks.length === 0 ? "No busy times found in this one." : `Found ${data.blocks.length} events`,
         });
+        setReviewing(true);
       } catch (err) {
         update({ status: "error", message: err instanceof Error && err.message ? err.message : "Couldn't read this one." });
       }
@@ -102,18 +106,14 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
     return () => window.removeEventListener("paste", onPaste);
   }, [addFiles]);
 
-  const updateBlock = (index: number, patch: Partial<BusyBlock>) =>
-    setBlocks((prev) => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)));
-  const removeBlock = (index: number) => setBlocks((prev) => prev.filter((_, i) => i !== index));
-  const addBlock = () => setBlocks((prev) => [...prev, { day: 0, start: 9 * 60, end: 10 * 60, label: "" }]);
-
-  const invalid = blocks.some((b) => b.end <= b.start);
-
   async function save() {
     setError("");
     setSaving(true);
     try {
-      await onSave(name.trim(), sortBlocks(blocks));
+      await onSave(
+        name.trim(),
+        sortBlocks(blocks.map(({ day, start, end, label }) => ({ day, start, end, label }))),
+      );
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't save. Try again.");
       setSaving(false);
@@ -136,7 +136,8 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
       <div>
         <span className="text-sm font-semibold">Your schedule</span>
         <p className="text-sm text-stone-500">
-          Screenshot your class schedule or a week view of your calendar. If it doesn&apos;t fit in one, add more (like morning and afternoon). Overlaps get merged.
+          Screenshot your class schedule or a week view of your calendar. If it doesn&apos;t fit in one, add more
+          (like morning and afternoon).
         </p>
         <div
           onClick={() => fileInput.current?.click()}
@@ -199,7 +200,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
       {screenshots.length > 0 && (
         <div className="flex gap-3 overflow-x-auto pb-1">
           {screenshots.map((s) => (
-            <a key={s.url} href={s.url} target="_blank" rel="noreferrer" className="w-28 shrink-0">
+            <div key={s.url} className="w-28 shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.url} alt="Your screenshot" className="h-36 w-28 rounded-lg border border-stone-200 object-cover object-top" />
               <div
@@ -215,75 +216,10 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
                   s.message
                 )}
               </div>
-            </a>
+            </div>
           ))}
         </div>
       )}
-
-      {notes.length > 0 && (
-        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {notes.map((n, i) => (
-            <p key={i}>{n}</p>
-          ))}
-        </div>
-      )}
-
-      {(hasRead || blocks.length > 0) && (
-        <div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm font-semibold">Check your busy times</span>
-            <span className="text-xs text-stone-500">Compare with your screenshot and fix anything wrong</span>
-          </div>
-          {blocks.length === 0 ? (
-            <p className="mt-2 rounded-xl bg-stone-50 px-4 py-3 text-sm text-stone-600">
-              No busy times yet. If you&apos;re really free all week, you can save as-is.
-            </p>
-          ) : (
-            <ul className="mt-2 divide-y divide-stone-100 rounded-xl border border-stone-200">
-              {blocks.map((b, i) => (
-                <li key={i} className="flex flex-wrap items-center gap-2 px-3 py-2">
-                  <select
-                    value={b.day}
-                    onChange={(e) => updateBlock(i, { day: Number(e.target.value) })}
-                    className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-sm"
-                    aria-label="Day"
-                  >
-                    {DAY_NAMES.map((d, di) => (
-                      <option key={d} value={di}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                  <TimeInput value={b.start} onChange={(start) => updateBlock(i, { start })} label="Start time" />
-                  <span className="text-stone-400">to</span>
-                  <TimeInput value={b.end} onChange={(end) => updateBlock(i, { end })} label="End time" />
-                  <input
-                    value={b.label ?? ""}
-                    onChange={(e) => updateBlock(i, { label: e.target.value })}
-                    placeholder="What is it?"
-                    maxLength={40}
-                    className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1.5 text-sm text-stone-600 hover:border-stone-200 focus:border-stone-300"
-                  />
-                  {b.end <= b.start && <span className="text-xs text-red-600">End must be after start</span>}
-                  <button
-                    type="button"
-                    onClick={() => removeBlock(i)}
-                    className="ml-auto rounded-lg px-2 py-1 text-stone-400 hover:bg-red-50 hover:text-red-600"
-                    aria-label={`Remove ${formatRange(b.start, b.end)}`}
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button type="button" onClick={addBlock} className="mt-2 text-sm font-medium text-emerald-700 hover:underline">
-            + Add something it missed
-          </button>
-        </div>
-      )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-2">
         {onCancel && (
@@ -291,55 +227,72 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
             Cancel
           </Button>
         )}
-        <Button onClick={save} disabled={saving || reading || !name.trim() || !hasRead || invalid} className="flex-1">
-          {saving && <Spinner />} {reading ? "Reading your screenshot…" : "Save my schedule"}
+        <Button onClick={() => setReviewing(true)} disabled={reading || !canReview} className="flex-1">
+          {reading ? (
+            <>
+              <Spinner /> Reading your screenshot…
+            </>
+          ) : (
+            "Check it and save"
+          )}
         </Button>
       </div>
+
+      {reviewing && (
+        <ReviewSchedule
+          screenshots={screenshots.filter((s) => s.status === "done")}
+          blocks={blocks}
+          setBlocks={setBlocks}
+          notes={notes}
+          name={name}
+          setName={setName}
+          saving={saving}
+          error={error}
+          onSave={save}
+          onClose={() => setReviewing(false)}
+          onAddScreenshot={() => {
+            setReviewing(false);
+            fileInput.current?.click();
+          }}
+        />
+      )}
     </Card>
   );
 }
 
-function TimeInput({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
-  return (
-    <input
-      type="time"
-      step={300}
-      value={toHHMM(Math.min(value, 23 * 60 + 59))}
-      onChange={(e) => {
-        const v = fromHHMM(e.target.value);
-        if (v !== null) onChange(v);
-      }}
-      aria-label={label}
-      className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm"
-    />
-  );
-}
-
-// Combines blocks from several screenshots. When two screenshots overlap, the same class shows up
-// twice, sometimes cut off at the edge of one screenshot, so matching blocks are joined into one.
-function mergeBlocks(existing: BusyBlock[], incoming: BusyBlock[]) {
+// Combines events from several screenshots. When two screenshots overlap, the same event shows up
+// twice (sometimes cut off at the edge of one), so matching events are joined into one. Different
+// events at the same time, like classes on two layered calendars, are kept separate.
+function mergeBlocks(existing: EditableBlock[], incoming: BusyBlock[]) {
+  // Only match against earlier screenshots, never within the same one, so side-by-side events stay separate.
   const result = [...existing];
+  const before = existing.length;
+  const sameLabel = (x?: string, y?: string) => {
+    if (!x || !y) return false;
+    const [a, b] = [x.toLowerCase(), y.toLowerCase()];
+    return a.startsWith(b) || b.startsWith(a);
+  };
   for (const b of incoming) {
-    const match = result.findIndex(
-      (e) =>
-        e.day === b.day &&
-        e.start <= b.end &&
-        b.start <= e.end &&
-        ((e.label && b.label && e.label.toLowerCase() === b.label.toLowerCase()) ||
-          Math.abs(e.start - b.start) <= 10 ||
-          Math.abs(e.end - b.end) <= 10),
-    );
+    const overlaps = (e: BusyBlock) => e.day === b.day && e.start <= b.end && b.start <= e.end;
+    const earlier = result.slice(0, before);
+    let match = earlier.findIndex((e) => overlaps(e) && sameLabel(e.label, b.label));
+    if (match === -1 && !b.label) {
+      match = earlier.findIndex(
+        (e) => overlaps(e) && !e.label && (Math.abs(e.start - b.start) <= 10 || Math.abs(e.end - b.end) <= 10),
+      );
+    }
     if (match === -1) {
-      result.push(b);
+      result.push({ ...b, uid: newUid() });
     } else {
       const e = result[match];
-      result[match] = { ...e, start: Math.min(e.start, b.start), end: Math.max(e.end, b.end), label: e.label || b.label };
+      const longer = (b.label?.length ?? 0) > (e.label?.length ?? 0) ? b.label : e.label;
+      result[match] = { ...e, start: Math.min(e.start, b.start), end: Math.max(e.end, b.end), label: longer };
     }
   }
-  return sortBlocks(result);
+  return result;
 }
 
-function sortBlocks(blocks: BusyBlock[]) {
+function sortBlocks<T extends BusyBlock>(blocks: T[]) {
   return [...blocks].sort((a, b) => a.day - b.day || a.start - b.start);
 }
 
