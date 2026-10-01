@@ -92,7 +92,7 @@ export default function ReviewSchedule({
       </div>
 
       <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-2 sm:p-6">
-        <section className={`min-h-0 flex-col ${tab === "mine" ? "flex" : "hidden"} md:flex`}>
+        <section className={`min-h-0 min-w-0 flex-col ${tab === "mine" ? "flex" : "hidden"} md:flex`}>
           <h3 className="mb-2 hidden text-sm font-semibold text-stone-600 md:block">Your screenshot</h3>
           <div className="min-h-0 flex-1 space-y-3 overflow-auto rounded-2xl border border-stone-200 bg-white p-3">
             {screenshots.length === 0 ? (
@@ -106,7 +106,7 @@ export default function ReviewSchedule({
           </div>
         </section>
 
-        <section className={`min-h-0 flex-col ${tab === "read" ? "flex" : "hidden"} md:flex`}>
+        <section className={`min-h-0 min-w-0 flex-col ${tab === "read" ? "flex" : "hidden"} md:flex`}>
           <h3 className="mb-2 hidden text-sm font-semibold text-stone-600 md:block">What WhenWorks read</h3>
           <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-stone-200 bg-white p-3">
             {notes.length > 0 && (

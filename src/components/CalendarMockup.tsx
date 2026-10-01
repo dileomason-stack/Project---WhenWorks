@@ -13,6 +13,8 @@ interface Props {
 }
 
 const HOUR_PX = 46;
+// Each day gets at least this much room; on phones the calendar scrolls sideways instead of squishing.
+const DAY_WIDTH = "min-w-[88px] flex-1";
 // US calendars (Google, Apple) start the week on Sunday, so the mockup does too to make comparing easy.
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5];
 // Side-by-side events alternate shades, like layered calendars in Google Calendar.
@@ -52,17 +54,17 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
   const height = ((rangeEnd - rangeStart) / 60) * HOUR_PX;
 
   return (
-    <div className="select-none">
-      <div className="flex border-b border-stone-200 pb-1.5">
-        <div className="w-12 shrink-0" />
+    <div className="min-w-max select-none">
+      <div className="sticky top-0 z-20 flex border-b border-stone-200 bg-white pb-1.5">
+        <div className="sticky left-0 z-10 w-12 shrink-0 bg-white" />
         {days.map((d) => (
-          <div key={d} className="flex-1 text-center text-xs font-semibold uppercase tracking-wide text-stone-500">
+          <div key={d} className={`${DAY_WIDTH} text-center text-xs font-semibold uppercase tracking-wide text-stone-500`}>
             {DAY_SHORT[d]}
           </div>
         ))}
       </div>
       <div className="flex">
-        <div className="relative w-12 shrink-0" style={{ height }}>
+        <div className="sticky left-0 z-10 w-12 shrink-0 bg-white" style={{ height }}>
           {hours.map((t, i) => (
             <div key={t} className="absolute right-2 -translate-y-1/2 text-[10px] text-stone-400" style={{ top: i * HOUR_PX }}>
               {i === 0 ? "" : formatTime(t).toUpperCase()}
@@ -72,7 +74,7 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
         {days.map((d) => (
           <div
             key={d}
-            className="relative flex-1 cursor-copy border-l border-stone-200"
+            className={`relative ${DAY_WIDTH} cursor-copy border-l border-stone-200`}
             style={{
               height,
               backgroundImage: `repeating-linear-gradient(to bottom, #e7e5e4 0 1px, transparent 1px ${HOUR_PX}px)`,
@@ -108,8 +110,8 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
                   }}
                   title={`${block.label || "Busy"} · ${formatRange(block.start, block.end)}`}
                 >
-                  <div className="font-semibold break-words">{block.label || "Busy"}</div>
-                  {cols < 3 && <div className="break-words opacity-90">{formatRange(block.start, block.end)}</div>}
+                  <div className="font-semibold">{block.label || "Busy"}</div>
+                  {cols < 3 && <div className="opacity-90">{formatRange(block.start, block.end)}</div>}
                 </button>
               );
             })}

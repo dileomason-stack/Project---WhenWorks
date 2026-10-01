@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type EditableBlock } from "./CalendarMockup";
 import ReviewSchedule, { newUid } from "./ReviewSchedule";
 import { Button, Card, Spinner } from "./ui";
@@ -56,6 +56,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const isPhone = useIsPhone();
 
   const reading = screenshots.some((s) => s.status === "reading");
   // Review opens once a screenshot has been tried, so a failed read can still be fixed by hand.
@@ -165,8 +166,17 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           <svg viewBox="0 0 24 24" className="h-8 w-8 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={1.8}>
             <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <span className="mt-2 font-semibold">{screenshots.length ? "Add another screenshot" : "Upload a screenshot"}</span>
-          <span className="text-xs text-stone-500">Tap to choose, drag it here, or paste it</span>
+          {isPhone ? (
+            <>
+              <span className="mt-2 font-semibold">{screenshots.length ? "Add another from Photos" : "Add from Photos"}</span>
+              <span className="text-xs text-stone-500">Pick your calendar screenshot. You can pick more than one.</span>
+            </>
+          ) : (
+            <>
+              <span className="mt-2 font-semibold">{screenshots.length ? "Add another screenshot" : "Upload a screenshot"}</span>
+              <span className="text-xs text-stone-500">Click to choose, drag it here, or paste it</span>
+            </>
+          )}
           <input
             ref={fileInput}
             type="file"
@@ -179,7 +189,30 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
             }}
           />
         </div>
-        <details className="group mt-2 rounded-xl bg-stone-50 px-4 py-2.5 text-sm">
+        <details open={isPhone} className="mt-2 rounded-xl bg-stone-50 px-4 py-2.5 text-sm">
+          <summary className="cursor-pointer font-medium text-emerald-700 select-none">
+            How to screenshot your calendar on iPhone
+          </summary>
+          <ol className="mt-2 list-decimal space-y-2 pl-5 text-stone-600">
+            <li>
+              <b className="text-stone-800">Open week view.</b> Google Calendar app: tap ☰ (top left) → <b>Week</b>. Apple
+              Calendar: turn your phone sideways to see the whole week.
+            </li>
+            <li>
+              <b className="text-stone-800">Hide calendars that aren&apos;t yours.</b> Google: in the same ☰ menu, uncheck
+              them. Apple: tap <b>Calendars</b> at the bottom and uncheck them.
+            </li>
+            <li>
+              <b className="text-stone-800">Take the screenshot:</b> press the <b>side button</b> and <b>volume up</b> at
+              the same time. Pinch to zoom out first if your day doesn&apos;t fit, or take one of the morning and one of
+              the afternoon.
+            </li>
+            <li>
+              <b className="text-stone-800">Come back here</b>, tap <b>Add from Photos</b>, and pick your screenshot(s).
+            </li>
+          </ol>
+        </details>
+        <details className="mt-2 rounded-xl bg-stone-50 px-4 py-2.5 text-sm">
           <summary className="cursor-pointer font-medium text-emerald-700 select-none">
             Calendar doesn&apos;t fit in one screenshot?
           </summary>
@@ -197,10 +230,6 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
               <b className="text-stone-800">Shared calendars:</b> turn off calendars that aren&apos;t yours (like a
               partner&apos;s or roommate&apos;s) before you take the screenshot, so their events don&apos;t count as your
               busy times. In Google Calendar, uncheck them in the left sidebar.
-            </li>
-            <li>
-              <b className="text-stone-800">On your phone:</b> pinch to zoom out in week view. Still too long? Take one
-              screenshot of the morning and one of the afternoon, then upload both.
             </li>
           </ul>
         </details>
@@ -352,5 +381,18 @@ function ReadingStatus() {
         </div>
       </div>
     </div>
+  );
+}
+
+// True on touch-screen phones and tablets, where people pick screenshots from their photo library.
+function useIsPhone() {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia("(pointer: coarse)");
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(pointer: coarse)").matches,
+    () => false,
   );
 }
