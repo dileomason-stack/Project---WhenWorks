@@ -21,10 +21,10 @@ const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5];
 const SHADES = ["bg-emerald-700 text-white", "bg-lime-600 text-white", "bg-emerald-500 text-white"];
 
 // Places events that overlap side by side, the way Google Calendar does.
-function layoutDay(blocks: EditableBlock[]) {
+export function layoutDay<T extends { start: number; end: number }>(blocks: T[]) {
   const sorted = [...blocks].sort((a, b) => a.start - b.start || b.end - a.end);
-  const placed: { block: EditableBlock; col: number; cols: number }[] = [];
-  let cluster: { block: EditableBlock; col: number; cols: number }[] = [];
+  const placed: { block: T; col: number; cols: number }[] = [];
+  let cluster: { block: T; col: number; cols: number }[] = [];
   let columnEnds: number[] = [];
   let clusterEnd = -1;
   const closeCluster = () => {

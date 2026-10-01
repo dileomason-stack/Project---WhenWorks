@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import UploadSchedule from "./UploadSchedule";
+import OverlapView from "./OverlapView";
 import WeekGrid from "./WeekGrid";
 import { Button, Card, Spinner } from "./ui";
 import { formatRange, freeRangesFor } from "@/lib/schedule";
@@ -13,24 +15,33 @@ interface Owned {
   editKey: string;
 }
 
+// What this browser remembers about a group: your own schedule, friends' schedules you uploaded for
+// them (so you can edit them later), and the admin key if you created the group.
+interface Saved {
+  self: Owned | null;
+  others: Owned[];
+  adminKey?: string;
+}
+
 const storageKey = (groupId: string) => `whenworks:${groupId}`;
 
-// The schedules this browser added to the group, so they can be edited later. The first one is yours;
-// the rest are friends' schedules you uploaded for them.
-function loadOwned(groupId: string): Owned[] {
+function loadSaved(groupId: string): Saved {
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey(groupId)) ?? "null");
-    if (Array.isArray(raw?.members)) return raw.members;
-    if (raw?.memberId) return [raw]; // Saved by an older version of the site.
+    if (raw && "others" in raw) return { self: raw.self ?? null, others: raw.others ?? [], adminKey: raw.adminKey };
+    // Saved by older versions of the site.
+    if (Array.isArray(raw?.members)) return { self: raw.members[0] ?? null, others: raw.members.slice(1), adminKey: raw.adminKey };
+    if (raw?.memberId) return { self: raw, others: [] };
   } catch {
     // Blocked or broken storage; start fresh.
   }
-  return [];
+  return { self: null, others: [] };
 }
 
-function storeOwned(groupId: string, owned: Owned[]) {
+function storeSaved(groupId: string, saved: Saved | null) {
   try {
-    localStorage.setItem(storageKey(groupId), JSON.stringify({ members: owned }));
+    if (saved) localStorage.setItem(storageKey(groupId), JSON.stringify(saved));
+    else localStorage.removeItem(storageKey(groupId));
   } catch {
     // Private browsing can block storage; they just won't be able to edit later.
   }
@@ -39,11 +50,16 @@ function storeOwned(groupId: string, owned: Owned[]) {
 export default function GroupView({ id }: { id: string }) {
   const [group, setGroup] = useState<Group | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [owned, setOwned] = useState<Owned[]>([]);
+  const [saved, setSaved] = useState<Saved>({ self: null, others: [] });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const router = useRouter();
   // Which schedule is open for editing: a member id, "new" for someone else's, or null.
   const [editing, setEditing] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [view, setView] = useState<"free" | "overlap">("free");
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/groups/${id}`, { cache: "no-store" });
@@ -53,7 +69,7 @@ export default function GroupView({ id }: { id: string }) {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reading the browser's saved schedules on first load
-    setOwned(loadOwned(id));
+    setSaved(loadSaved(id));
     refresh();
     // Checks for new schedules every few seconds so the page updates as people upload.
     const timer = setInterval(() => {
@@ -63,11 +79,17 @@ export default function GroupView({ id }: { id: string }) {
   }, [id, refresh]);
 
   const memberById = (memberId?: string) => group?.members.find((m) => m.id === memberId) ?? null;
-  const myMember = memberById(owned[0]?.memberId);
-  const addedForOthers = owned.slice(1).flatMap((o) => memberById(o.memberId) ?? []);
+  const myMember = memberById(saved.self?.memberId);
+  const addedForOthers = saved.others.flatMap((o) => memberById(o.memberId) ?? []);
+  const owned = [...(saved.self ? [saved.self] : []), ...saved.others];
   const ownedIds = new Set(owned.map((o) => o.memberId));
 
-  async function save(name: string, busy: BusyBlock[], existing: Owned | null) {
+  function updateSaved(next: Saved) {
+    setSaved(next);
+    storeSaved(id, next);
+  }
+
+  async function save(name: string, busy: BusyBlock[], existing: Owned | null, forOther: boolean) {
     const res = await fetch(`/api/groups/${id}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,13 +99,44 @@ export default function GroupView({ id }: { id: string }) {
     if (!res.ok) throw new Error(data.error);
     if (!existing) {
       const entry = { memberId: data.memberId, editKey: data.editKey };
-      // Your own schedule always goes first; anyone else's is added after it.
-      const next = myMember ? [...owned, entry] : [entry, ...owned.slice(1)];
-      setOwned(next);
-      storeOwned(id, next);
+      updateSaved(forOther ? { ...saved, others: [...saved.others, entry] } : { ...saved, self: entry });
     }
     setGroup(data.group);
     setEditing(null);
+  }
+
+  async function removeSchedule(owner: Owned) {
+    setActionError("");
+    const res = await fetch(`/api/groups/${id}/members`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(owner),
+    });
+    const data = await res.json();
+    if (!res.ok) return setActionError(data.error);
+    updateSaved({
+      ...saved,
+      self: saved.self?.memberId === owner.memberId ? null : saved.self,
+      others: saved.others.filter((o) => o.memberId !== owner.memberId),
+    });
+    setGroup(data.group);
+    setEditing(null);
+  }
+
+  async function deleteGroup() {
+    setActionError("");
+    setDeleting(true);
+    const res = await fetch(`/api/groups/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminKey: saved.adminKey }),
+    });
+    if (!res.ok) {
+      setDeleting(false);
+      return setActionError((await res.json()).error);
+    }
+    storeSaved(id, null);
+    router.push("/");
   }
 
   async function share() {
@@ -138,9 +191,17 @@ export default function GroupView({ id }: { id: string }) {
             {group.days.map((d) => DAY_SHORT[d]).join(", ")}
           </p>
         </div>
-        <Button variant="secondary" onClick={share}>
-          {copied ? "Link copied!" : "Share group link"}
-        </Button>
+        <div className="flex gap-2">
+          <Link
+            href="/"
+            className="inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+          >
+            + New group
+          </Link>
+          <Button variant="secondary" onClick={share}>
+            {copied ? "Link copied!" : "Share group link"}
+          </Button>
+        </div>
       </header>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
@@ -148,7 +209,7 @@ export default function GroupView({ id }: { id: string }) {
           {!myMember ? (
             <div>
               <h2 className="mb-3 text-lg font-semibold">Add your schedule</h2>
-              <UploadSchedule key="self" onSave={(name, busy) => save(name, busy, null)} />
+              <UploadSchedule key="self" onSave={(name, busy) => save(name, busy, null, false)} />
             </div>
           ) : editing ? (
             <div>
@@ -169,9 +230,17 @@ export default function GroupView({ id }: { id: string }) {
                 forOther={!isEditingSelf}
                 initialName={editingMember?.name}
                 initialBusy={editingMember?.busy}
-                onSave={(name, busy) => save(name, busy, editingOwned)}
+                onSave={(name, busy) => save(name, busy, editingOwned, !isEditingSelf)}
                 onCancel={() => setEditing(null)}
               />
+              {editingOwned && (
+                <button
+                  onClick={() => removeSchedule(editingOwned)}
+                  className="mt-3 w-full text-center text-sm font-medium text-red-600 hover:underline"
+                >
+                  Remove {isEditingSelf ? "your" : `${editingMember?.name ?? "this"}'s`} schedule from the group
+                </button>
+              )}
             </div>
           ) : (
             <Card className="space-y-4">
@@ -225,12 +294,63 @@ export default function GroupView({ id }: { id: string }) {
         <div className="space-y-6">
           {group.members.length > 0 && (
             <Card>
-              <h2 className="mb-4 text-lg font-semibold">Week at a glance</h2>
-              <WeekGrid group={group} focusId={focusId} />
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">Week at a glance</h2>
+                {group.members.length > 1 && (
+                  <div className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5 text-sm">
+                    {(
+                      [
+                        ["free", "Free time"],
+                        ["overlap", "Overlap"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setView(value)}
+                        className={`rounded-md px-3 py-1 font-medium ${view === value ? "bg-white shadow-sm" : "text-stone-500"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {view === "overlap" && group.members.length > 1 ? (
+                <OverlapView group={group} />
+              ) : (
+                <WeekGrid group={group} focusId={focusId} />
+              )}
             </Card>
           )}
         </div>
       </div>
+      {actionError && <p className="mt-6 text-center text-sm text-red-600">{actionError}</p>}
+
+      {saved.adminKey && (
+        <div className="mt-12 border-t border-stone-200 pt-6 text-center">
+          {confirmDelete ? (
+            <div className="mx-auto max-w-md rounded-2xl border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-900">
+                Delete <b>{group.name}</b>? Everyone&apos;s schedules will be removed and the link will stop working. This
+                can&apos;t be undone.
+              </p>
+              <div className="mt-3 flex justify-center gap-2">
+                <Button variant="secondary" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button variant="danger" onClick={deleteGroup} disabled={deleting}>
+                  {deleting && <Spinner />} Delete for everyone
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmDelete(true)} className="text-sm font-medium text-red-600 hover:underline">
+              Delete this group
+            </button>
+          )}
+          <p className="mt-2 text-xs text-stone-400">Only you see this because you made the group.</p>
+        </div>
+      )}
     </main>
   );
 }

@@ -38,4 +38,6 @@ export interface StoredMember extends Member {
 
 export interface StoredGroup extends Omit<Group, "members"> {
   members: StoredMember[];
+  // Secret given to whoever created the group; needed to delete it.
+  adminKey?: string;
 }

@@ -15,8 +15,10 @@ export function newId(bytes = 6): string {
 }
 
 export function toPublic(group: StoredGroup): Group {
+  const { adminKey: _adminKey, ...rest } = group;
+  void _adminKey;
   return {
-    ...group,
+    ...rest,
     members: group.members.map(({ id, name, busy, updatedAt }) => ({ id, name, busy, updatedAt })),
   };
 }
@@ -118,4 +120,29 @@ export async function saveMember(groupId: string, member: StoredMember): Promise
     INSERT INTO members (group_id, id, data) VALUES (${groupId}, ${member.id}, ${JSON.stringify(member)})
     ON CONFLICT (group_id, id) DO UPDATE SET data = EXCLUDED.data`;
   await sql`UPDATE groups SET updated_at = now() WHERE id = ${groupId}`;
+}
+
+// Deletes a group and everyone's schedules in it.
+export async function deleteGroup(id: string): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      delete all[id];
+    });
+    return;
+  }
+  await ensureSchema();
+  await sql`DELETE FROM groups WHERE id = ${id}`;
+}
+
+// Removes one person's schedule from a group.
+export async function deleteMember(groupId: string, memberId: string): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      const group = all[groupId];
+      if (group) group.members = group.members.filter((m) => m.id !== memberId);
+    });
+    return;
+  }
+  await ensureSchema();
+  await sql`DELETE FROM members WHERE group_id = ${groupId} AND id = ${memberId}`;
 }

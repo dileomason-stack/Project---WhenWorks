@@ -34,6 +34,12 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      try {
+        // Remember that this browser made the group, so it can delete it later.
+        localStorage.setItem(`whenworks:${data.id}`, JSON.stringify({ members: [], adminKey: data.adminKey }));
+      } catch {
+        // Private browsing can block storage; the group still works, it just can't be deleted from here.
+      }
       router.push(`/g/${data.id}`);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't create the group. Try again.");

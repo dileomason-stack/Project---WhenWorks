@@ -25,7 +25,8 @@ export async function POST(request: Request) {
     dayEnd,
     createdAt: new Date().toISOString(),
     members: [],
+    adminKey: newId(12),
   };
   await createGroup(group);
-  return Response.json(toPublic(group), { status: 201 });
+  return Response.json({ ...toPublic(group), adminKey: group.adminKey }, { status: 201 });
 }
