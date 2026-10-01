@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# GroupSync
+# WhenWorks
 
 A When2meet alternative for class group projects. Someone creates a group link, everyone uploads a
 screenshot of their schedule, Gemini reads the busy times, each person checks/fixes them, and the page

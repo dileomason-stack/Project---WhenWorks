@@ -13,7 +13,7 @@ interface Me {
   editKey: string;
 }
 
-const storageKey = (groupId: string) => `groupsync:${groupId}`;
+const storageKey = (groupId: string) => `whenworks:${groupId}`;
 
 function loadMe(groupId: string): Me | null {
   try {
@@ -112,7 +112,7 @@ export default function GroupView({ id }: { id: string }) {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/" className="text-sm font-semibold text-emerald-700">
-            GroupSync
+            WhenWorks
           </Link>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">{group.name}</h1>
           <p className="mt-1 text-sm text-stone-500">

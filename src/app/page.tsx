@@ -43,7 +43,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-12">
-      <h1 className="text-4xl font-bold tracking-tight">GroupSync</h1>
+      <h1 className="text-4xl font-bold tracking-tight">WhenWorks</h1>
       <p className="mt-3 text-lg text-stone-600">
         Make a group link, send it to the group chat, and everyone uploads a screenshot of their schedule. You&apos;ll see
         exactly when you&apos;re all free.

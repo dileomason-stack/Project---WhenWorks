@@ -8,8 +8,8 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "GroupSync — find a time that works for everyone",
-  description: "Everyone uploads a screenshot of their schedule. GroupSync finds when you're all free.",
+  title: "WhenWorks — find a time that works for everyone",
+  description: "Everyone uploads a screenshot of their schedule. WhenWorks finds when you're all free.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
