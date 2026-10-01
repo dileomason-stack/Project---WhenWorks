@@ -11,7 +11,7 @@ interface Props {
   focusId: string | null;
   weekStart: string; // The Monday of the week shown.
   proposals: Proposal[];
-  onSuggest?: (date: string, start: number) => Promise<void>;
+  onSuggest?: (date: string, start: number, end: number) => Promise<void>;
 }
 
 const ROW_PX = 11;
@@ -22,7 +22,19 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
   const isProposed = (slot: Slot) =>
     proposals.some((p) => p.date === dateOf(slot.day) && p.start <= slot.start && p.end > slot.start);
   const slots = useMemo(() => buildSlots(group), [group]);
-  const [picked, setPicked] = useState<Slot | null>(null);
+  const [pickedSlot, setPicked] = useState<Slot | null>(null);
+  // Tapping a time selects a whole meeting-length stretch starting there (e.g. 3pm – 4pm for an hour),
+  // and "free" means free for all of it.
+  const picked = useMemo(() => {
+    if (!pickedSlot) return null;
+    const daySlots = slots[group.days.indexOf(pickedSlot.day)] ?? [];
+    const end = Math.min(pickedSlot.start + group.meetingMinutes, group.dayEnd);
+    const covered = daySlots.filter((s) => s.start >= pickedSlot.start && s.start < end);
+    const freeIds = group.members
+      .filter((m) => covered.every((s) => s.freeIds.includes(m.id)))
+      .map((m) => m.id);
+    return { day: pickedSlot.day, start: pickedSlot.start, end, freeIds };
+  }, [pickedSlot, slots, group]);
   const total = group.members.length;
   const focus = group.members.find((m) => m.id === focusId) ?? null;
   const names = new Map(group.members.map((m) => [m.id, m.name]));
@@ -56,9 +68,18 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
           )}
         </div>
         {slots.map((daySlots, di) => (
-          <div key={di} className="flex-1 border-l border-stone-200 first:border-l-0">
+          <div key={di} className="relative flex-1 border-l border-stone-200 first:border-l-0">
+            {picked && picked.day === daySlots[0]?.day && (
+              <div
+                className="pointer-events-none absolute inset-x-0 z-10 rounded-sm border-2 border-stone-900"
+                style={{
+                  top: ((picked.start - group.dayStart) / SLOT_MINUTES) * ROW_PX,
+                  height: ((picked.end - picked.start) / SLOT_MINUTES) * ROW_PX,
+                }}
+              />
+            )}
             {daySlots.map((slot, i) => {
-              const isPicked = picked && picked.day === slot.day && picked.start === slot.start;
+              const isPicked = pickedSlot?.day === slot.day && pickedSlot?.start === slot.start;
               return (
                 <button
                   key={i}
@@ -67,7 +88,7 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
                   title={`${formatRange(slot.start, slot.end)} · ${slot.freeIds.length}/${total} free`}
                   className={`block w-full ${cellClass(slot)} ${
                     slot.start % 60 === 0 ? "border-t border-stone-200" : ""
-                  } ${isPicked ? "outline-2 -outline-offset-2 outline-stone-900" : isProposed(slot) ? "shadow-[inset_3px_0_0_#1c1917]" : ""}`}
+                  } ${isProposed(slot) ? "shadow-[inset_3px_0_0_#1c1917]" : ""}`}
                   style={{ height: ROW_PX }}
                 />
               );
@@ -80,7 +101,7 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
         {picked ? (
           <div className="rounded-xl bg-stone-50 px-3 py-2">
             <div className="font-semibold">
-              {formatLongDate(dateOf(picked.day))}, {formatRange(picked.start, picked.start + SLOT_MINUTES)}
+              {formatLongDate(dateOf(picked.day))}, {formatRange(picked.start, picked.end)}
             </div>
               <>
                 <div className="text-emerald-700">
@@ -104,15 +125,15 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
                   className="py-1.5"
                   onClick={async () => {
                     setSuggesting(true);
-                    await onSuggest(dateOf(picked.day), picked.start);
+                    await onSuggest(dateOf(picked.day), picked.start, picked.end);
                     setSuggesting(false);
                     setPicked(null);
                   }}
                 >
-                  Suggest {formatRange(picked.start, Math.min(picked.start + group.meetingMinutes, 24 * 60))}
+                  Suggest this time
                 </Button>
                 {picked.freeIds.length < total && (
-                  <span className="text-xs text-stone-500">Not everyone is free for all of it.</span>
+                  <span className="text-xs text-stone-500">Not everyone is free for the whole time.</span>
                 )}
               </div>
             )}

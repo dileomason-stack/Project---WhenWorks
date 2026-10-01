@@ -165,8 +165,8 @@ export default function GroupView({ id }: { id: string }) {
     setGroup(data.group);
   }
 
-  async function suggest(date: string, start: number) {
-    await plan("propose", { date, start, end: Math.min(start + group!.meetingMinutes, 24 * 60), voters: owned });
+  async function suggest(date: string, start: number, end: number) {
+    await plan("propose", { date, start, end, voters: owned });
   }
 
   async function share() {
