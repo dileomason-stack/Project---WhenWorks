@@ -33,6 +33,7 @@ export interface Group {
 // What the server stores: each member also has a secret key so only they can edit their schedule.
 export interface StoredMember extends Member {
   editKey: string;
+  addedAt?: string;
 }
 
 export interface StoredGroup extends Omit<Group, "members"> {

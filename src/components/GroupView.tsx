@@ -8,27 +8,40 @@ import { Button, Card, Spinner } from "./ui";
 import { bestPartialWindows, everyoneFreeWindows, formatRange, freeRangesFor } from "@/lib/schedule";
 import { DAY_NAMES, DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
 
-interface Me {
+interface Owned {
   memberId: string;
   editKey: string;
 }
 
 const storageKey = (groupId: string) => `whenworks:${groupId}`;
 
-function loadMe(groupId: string): Me | null {
+// The schedules this browser added to the group, so they can be edited later. The first one is yours;
+// the rest are friends' schedules you uploaded for them.
+function loadOwned(groupId: string): Owned[] {
   try {
-    const raw = localStorage.getItem(storageKey(groupId));
-    return raw ? JSON.parse(raw) : null;
+    const raw = JSON.parse(localStorage.getItem(storageKey(groupId)) ?? "null");
+    if (Array.isArray(raw?.members)) return raw.members;
+    if (raw?.memberId) return [raw]; // Saved by an older version of the site.
   } catch {
-    return null;
+    // Blocked or broken storage; start fresh.
+  }
+  return [];
+}
+
+function storeOwned(groupId: string, owned: Owned[]) {
+  try {
+    localStorage.setItem(storageKey(groupId), JSON.stringify({ members: owned }));
+  } catch {
+    // Private browsing can block storage; they just won't be able to edit later.
   }
 }
 
 export default function GroupView({ id }: { id: string }) {
   const [group, setGroup] = useState<Group | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [me, setMe] = useState<Me | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [owned, setOwned] = useState<Owned[]>([]);
+  // Which schedule is open for editing: a member id, "new" for someone else's, or null.
+  const [editing, setEditing] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -39,8 +52,8 @@ export default function GroupView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading the browser's saved identity on first load
-    setMe(loadMe(id));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading the browser's saved schedules on first load
+    setOwned(loadOwned(id));
     refresh();
     // Checks for new schedules every few seconds so the page updates as people upload.
     const timer = setInterval(() => {
@@ -49,25 +62,28 @@ export default function GroupView({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, [id, refresh]);
 
-  const myMember = group?.members.find((m) => m.id === me?.memberId) ?? null;
+  const memberById = (memberId?: string) => group?.members.find((m) => m.id === memberId) ?? null;
+  const myMember = memberById(owned[0]?.memberId);
+  const addedForOthers = owned.slice(1).flatMap((o) => memberById(o.memberId) ?? []);
+  const ownedIds = new Set(owned.map((o) => o.memberId));
 
-  async function save(name: string, busy: BusyBlock[]) {
+  async function save(name: string, busy: BusyBlock[], existing: Owned | null) {
     const res = await fetch(`/api/groups/${id}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, busy, memberId: myMember?.id, editKey: me?.editKey }),
+      body: JSON.stringify({ name, busy, memberId: existing?.memberId, editKey: existing?.editKey }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    const saved = { memberId: data.memberId, editKey: data.editKey };
-    try {
-      localStorage.setItem(storageKey(id), JSON.stringify(saved));
-    } catch {
-      // Private browsing can block storage; they just won't be able to edit later.
+    if (!existing) {
+      const entry = { memberId: data.memberId, editKey: data.editKey };
+      // Your own schedule always goes first; anyone else's is added after it.
+      const next = myMember ? [...owned, entry] : [entry, ...owned.slice(1)];
+      setOwned(next);
+      storeOwned(id, next);
     }
-    setMe(saved);
     setGroup(data.group);
-    setEditing(false);
+    setEditing(null);
   }
 
   async function share() {
@@ -105,7 +121,9 @@ export default function GroupView({ id }: { id: string }) {
     );
   }
 
-  const showUpload = !myMember || editing;
+  const editingMember = editing && editing !== "new" ? memberById(editing) : null;
+  const editingOwned = owned.find((o) => o.memberId === editing) ?? null;
+  const isEditingSelf = !!myMember && editing === myMember.id;
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-8">
@@ -127,34 +145,81 @@ export default function GroupView({ id }: { id: string }) {
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="space-y-6">
-          {showUpload ? (
+          {!myMember ? (
             <div>
-              <h2 className="mb-3 text-lg font-semibold">{myMember ? "Update your schedule" : "Add your schedule"}</h2>
+              <h2 className="mb-3 text-lg font-semibold">Add your schedule</h2>
+              <UploadSchedule key="self" onSave={(name, busy) => save(name, busy, null)} />
+            </div>
+          ) : editing ? (
+            <div>
+              <h2 className="mb-3 text-lg font-semibold">
+                {isEditingSelf
+                  ? "Update your schedule"
+                  : editingMember
+                    ? `Update ${editingMember.name}'s schedule`
+                    : "Add someone else's schedule"}
+              </h2>
+              {editing === "new" && (
+                <p className="-mt-1 mb-3 text-sm text-stone-500">
+                  Did someone send you a screenshot instead of opening the link? Upload it here with their name.
+                </p>
+              )}
               <UploadSchedule
-                key={myMember?.id ?? "new"}
-                initialName={myMember?.name}
-                initialBusy={myMember?.busy}
-                onSave={save}
-                onCancel={myMember ? () => setEditing(false) : undefined}
+                key={editing}
+                forOther={!isEditingSelf}
+                initialName={editingMember?.name}
+                initialBusy={editingMember?.busy}
+                onSave={(name, busy) => save(name, busy, editingOwned)}
+                onCancel={() => setEditing(null)}
               />
             </div>
           ) : (
-            <Card className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-semibold">You&apos;re in as {myMember.name}</div>
-                <div className="text-sm text-stone-500">
-                  {group.members.length === 1
-                    ? "Now share the link so others can add theirs."
-                    : "Your schedule is saved."}
+            <Card className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">You&apos;re in as {myMember.name}</div>
+                  <div className="text-sm text-stone-500">
+                    {group.members.length === 1
+                      ? "Now share the link so others can add theirs."
+                      : "Your schedule is saved."}
+                  </div>
                 </div>
+                <Button variant="secondary" onClick={() => setEditing(myMember.id)}>
+                  Edit
+                </Button>
               </div>
-              <Button variant="secondary" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
+
+              {addedForOthers.length > 0 && (
+                <div className="border-t border-stone-100 pt-3">
+                  <div className="mb-1 text-sm font-semibold text-stone-600">Schedules you added for others</div>
+                  <ul className="divide-y divide-stone-100">
+                    {addedForOthers.map((m) => (
+                      <li key={m.id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span>{m.name}</span>
+                        <button
+                          onClick={() => setEditing(m.id)}
+                          className="font-medium text-emerald-700 hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="border-t border-stone-100 pt-3">
+                <Button variant="secondary" onClick={() => setEditing("new")} className="w-full">
+                  + Add someone else&apos;s schedule
+                </Button>
+                <p className="mt-1.5 text-center text-xs text-stone-500">
+                  For when a friend sends you their screenshot instead of using the link.
+                </p>
+              </div>
             </Card>
           )}
 
-          <People group={group} meId={myMember?.id} focusId={focusId} setFocusId={setFocusId} />
+          <People group={group} meId={myMember?.id} ownedIds={ownedIds} focusId={focusId} setFocusId={setFocusId} />
         </div>
 
         <div className="space-y-6">
@@ -174,11 +239,13 @@ export default function GroupView({ id }: { id: string }) {
 function People({
   group,
   meId,
+  ownedIds,
   focusId,
   setFocusId,
 }: {
   group: Group;
   meId?: string;
+  ownedIds: Set<string>;
   focusId: string | null;
   setFocusId: (id: string | null) => void;
 }) {
@@ -203,7 +270,11 @@ function People({
                 }`}
               >
                 <span className="text-emerald-600">✓</span> {m.name}
-                {m.id === meId && <span className="text-stone-400">(you)</span>}
+                {m.id === meId ? (
+                  <span className="text-stone-400">(you)</span>
+                ) : (
+                  ownedIds.has(m.id) && <span className="text-stone-400">(added by you)</span>
+                )}
               </button>
             ))}
           </div>

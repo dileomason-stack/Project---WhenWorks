@@ -1,5 +1,8 @@
 import { readScheduleScreenshot, ScreenshotError } from "@/lib/gemini";
 
+// Reading can take a while when Google's free models are busy and the site has to try several.
+export const maxDuration = 180;
+
 const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
 export async function POST(request: Request) {
@@ -9,7 +12,7 @@ export async function POST(request: Request) {
   if (typeof image !== "string" || typeof mimeType !== "string" || !ALLOWED.includes(mimeType)) {
     return Response.json({ error: "Upload a screenshot image." }, { status: 400 });
   }
-  if (image.length > 8_000_000) {
+  if (image.length > 4_000_000) {
     return Response.json({ error: "That image is too big. Try a smaller screenshot." }, { status: 413 });
   }
   try {

@@ -7,6 +7,8 @@ import { Button, Card, Spinner } from "./ui";
 import type { BusyBlock } from "@/lib/types";
 
 interface Props {
+  // True when uploading a screenshot someone else sent you, which changes "your" to "their" in the wording.
+  forOther?: boolean;
   initialName?: string;
   initialBusy?: BusyBlock[];
   onSave: (name: string, busy: BusyBlock[]) => Promise<void>;
@@ -39,14 +41,19 @@ async function prepareImage(file: File): Promise<{ base64: string; mimeType: str
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    // The server only accepts uploads up to about 4.5 MB, so lower the quality if a huge screenshot is too big.
+    let dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    for (const quality of [0.8, 0.65, 0.5]) {
+      if (dataUrl.length < 3_500_000) break;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
     return { base64: dataUrl.split(",")[1], mimeType: "image/jpeg" };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
-export default function UploadSchedule({ initialName = "", initialBusy = [], onSave, onCancel }: Props) {
+export default function UploadSchedule({ forOther = false, initialName = "", initialBusy = [], onSave, onCancel }: Props) {
   const [name, setName] = useState(initialName);
   const [blocks, setBlocks] = useState<EditableBlock[]>(() => initialBusy.map((b) => ({ ...b, uid: newUid() })));
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
@@ -124,21 +131,22 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
   return (
     <Card className="space-y-5">
       <label className="block">
-        <span className="text-sm font-semibold">Your name</span>
+        <span className="text-sm font-semibold">{forOther ? "Their name" : "Your name"}</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="First name is fine"
+          placeholder={forOther ? "Their first name" : "First name is fine"}
           maxLength={40}
           className="mt-1.5 w-full rounded-xl border border-stone-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
         />
       </label>
 
       <div>
-        <span className="text-sm font-semibold">Your schedule</span>
+        <span className="text-sm font-semibold">{forOther ? "Their schedule" : "Your schedule"}</span>
         <p className="text-sm text-stone-500">
-          Screenshot your class schedule or a week view of your calendar. If it doesn&apos;t fit in one, add more
-          (like morning and afternoon).
+          {forOther
+            ? "Upload the screenshot they sent you. If they sent more than one, add them all."
+            : "Screenshot your class schedule or a week view of your calendar. If it doesn't fit in one, add more (like morning and afternoon)."}
         </p>
         <p className="mt-2 flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <span aria-hidden>⚠️</span>
@@ -288,6 +296,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           blocks={blocks}
           setBlocks={setBlocks}
           notes={notes}
+          forOther={forOther}
           name={name}
           setName={setName}
           saving={saving}

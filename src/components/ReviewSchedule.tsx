@@ -11,6 +11,7 @@ interface Props {
   blocks: EditableBlock[];
   setBlocks: (update: (prev: EditableBlock[]) => EditableBlock[]) => void;
   notes: string[];
+  forOther: boolean;
   name: string;
   setName: (name: string) => void;
   saving: boolean;
@@ -28,6 +29,7 @@ export default function ReviewSchedule({
   blocks,
   setBlocks,
   notes,
+  forOther,
   name,
   setName,
   saving,
@@ -64,7 +66,7 @@ export default function ReviewSchedule({
     <div className="fixed inset-0 z-50 flex flex-col bg-stone-100">
       <header className="flex items-center justify-between gap-3 border-b border-stone-200 bg-white px-4 py-3 sm:px-6">
         <div>
-          <h2 className="text-lg font-bold">Does this match your calendar?</h2>
+          <h2 className="text-lg font-bold">Does this match {forOther ? "their" : "your"} calendar?</h2>
           <p className="text-sm text-stone-500">
             Tap an event to fix or delete it. Tap an empty spot to add something it missed.
           </p>
@@ -77,7 +79,7 @@ export default function ReviewSchedule({
       <div className="flex gap-1 border-b border-stone-200 bg-white px-4 py-2 md:hidden">
         {(
           [
-            ["mine", "Your screenshot"],
+            ["mine", forOther ? "Their screenshot" : "Your screenshot"],
             ["read", "What we read"],
           ] as const
         ).map(([value, label]) => (
@@ -93,7 +95,7 @@ export default function ReviewSchedule({
 
       <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-2 sm:p-6">
         <section className={`min-h-0 min-w-0 flex-col ${tab === "mine" ? "flex" : "hidden"} md:flex`}>
-          <h3 className="mb-2 hidden text-sm font-semibold text-stone-600 md:block">Your screenshot</h3>
+          <h3 className="mb-2 hidden text-sm font-semibold text-stone-600 md:block">{forOther ? "Their screenshot" : "Your screenshot"}</h3>
           <div className="min-h-0 flex-1 space-y-3 overflow-auto rounded-2xl border border-stone-200 bg-white p-3">
             {screenshots.length === 0 ? (
               <p className="p-4 text-sm text-stone-500">No screenshot this time. This is your saved schedule.</p>
@@ -169,10 +171,10 @@ export default function ReviewSchedule({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
+          placeholder={forOther ? "Their name" : "Your name"}
           maxLength={40}
           className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm sm:w-48"
-          aria-label="Your name"
+          aria-label={forOther ? "Their name" : "Your name"}
         />
         <Button variant="secondary" onClick={onAddScreenshot}>
           + Add another screenshot
@@ -180,7 +182,7 @@ export default function ReviewSchedule({
         <div className="flex flex-1 items-center justify-end gap-3">
           {error && <span className="text-sm text-red-600">{error}</span>}
           <Button onClick={onSave} disabled={saving || invalid || !name.trim()} className="w-full sm:w-auto">
-            {saving && <Spinner />} {name.trim() ? "Looks right, save it" : "Enter your name to save"}
+            {saving && <Spinner />} {name.trim() ? "Looks right, save it" : forOther ? "Enter their name to save" : "Enter your name to save"}
           </Button>
         </div>
       </footer>

@@ -10,9 +10,15 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
 - Screenshot reading needs `GEMINI_API_KEY` in `.env.local` (free tier, see `.env.example`).
 - Schedules are a repeating week: days 0 = Mon … 6 = Sun, times in minutes after midnight (`src/lib/types.ts`).
 - Free-time math lives in `src/lib/schedule.ts` (15-minute slots; a slot is free only if fully free).
-- Storage is a local JSON file (`data/groups.json`, gitignored) behind `src/lib/store.ts`; swap it for a
-  hosted database before deploying, since Vercel's disk doesn't persist.
-- Each member gets a secret `editKey`, kept in their browser's localStorage, so only they can edit their schedule.
+- Storage (`src/lib/store.ts`): Upstash Redis when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set (Vercel),
+  otherwise a local JSON file (`data/groups.json`, gitignored). In Redis each person is one hash field, so
+  concurrent saves don't clobber each other.
+- Each schedule gets a secret `editKey`. The browser that added it keeps the key in localStorage
+  (`whenworks:<groupId>` → `{ members: [...] }`, first entry is "you"), so people can also add and edit
+  schedules for friends who just send them a screenshot.
+- Screenshot reading (`src/lib/gemini.ts`) races the newer Gemini flash models in parallel, then falls back
+  to older ones, because the free tier is often overloaded. Uploads must stay under Vercel's 4.5 MB body limit.
+- Deploys: GitHub repo → Vercel, every push to `main` redeploys (same setup as the Homeroom project).
 
-Planned next: Google Calendar / Apple .ics import as backups, voting on a time, then calendar invites
-(plus a Google Meet link for online groups), then deploy to Vercel.
+Planned next: voting on a time, then calendar invites (plus a Google Meet link for online groups),
+then Google Calendar / Apple .ics import as backups.
