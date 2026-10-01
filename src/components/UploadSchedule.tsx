@@ -77,7 +77,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        setBlocks((prev) => sortBlocks([...prev, ...data.blocks]));
+        setBlocks((prev) => mergeBlocks(prev, data.blocks));
         if (data.notes) setNotes((prev) => [...prev, data.notes]);
         update({
           status: "done",
@@ -136,7 +136,7 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
       <div>
         <span className="text-sm font-semibold">Your schedule</span>
         <p className="text-sm text-stone-500">
-          Screenshot your class schedule or a week view of your calendar. You can add more than one, like classes and work.
+          Screenshot your class schedule or a week view of your calendar. If it doesn&apos;t fit in one, add more (like morning and afternoon). Overlaps get merged.
         </p>
         <div
           onClick={() => fileInput.current?.click()}
@@ -293,6 +293,30 @@ function TimeInput({ value, onChange, label }: { value: number; onChange: (v: nu
       className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm"
     />
   );
+}
+
+// Combines blocks from several screenshots. When two screenshots overlap, the same class shows up
+// twice, sometimes cut off at the edge of one screenshot, so matching blocks are joined into one.
+function mergeBlocks(existing: BusyBlock[], incoming: BusyBlock[]) {
+  const result = [...existing];
+  for (const b of incoming) {
+    const match = result.findIndex(
+      (e) =>
+        e.day === b.day &&
+        e.start <= b.end &&
+        b.start <= e.end &&
+        ((e.label && b.label && e.label.toLowerCase() === b.label.toLowerCase()) ||
+          Math.abs(e.start - b.start) <= 10 ||
+          Math.abs(e.end - b.end) <= 10),
+    );
+    if (match === -1) {
+      result.push(b);
+    } else {
+      const e = result[match];
+      result[match] = { ...e, start: Math.min(e.start, b.start), end: Math.max(e.end, b.end), label: e.label || b.label };
+    }
+  }
+  return sortBlocks(result);
 }
 
 function sortBlocks(blocks: BusyBlock[]) {
