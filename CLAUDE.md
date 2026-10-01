@@ -21,5 +21,12 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
   to older ones, because the free tier is often overloaded. Uploads must stay under Vercel's 4.5 MB body limit.
 - Deploys: GitHub repo → Vercel, every push to `main` redeploys (same setup as the Homeroom project).
 
-Planned next: voting on a time, then calendar invites (plus a Google Meet link for online groups),
-then Google Calendar / Apple .ics import as backups.
+- Events repeat weekly unless they have a `date` (one-time; only counts in that week). The calendar shows one
+  week at a time (`groupForWeek` in `src/lib/schedule.ts`); dates are "YYYY-MM-DD" helpers in `src/lib/dates.ts`.
+- Picking a time: `/api/groups/[id]/plan` handles propose / vote / confirm / unconfirm / size. Votes are per
+  member and need that member's edit key; the creator's `adminKey` can confirm anytime, others once everyone
+  said yes. The confirmed meeting has a Google Calendar link and `/api/groups/[id]/invite.ics` (Apple/Outlook).
+  Online groups default to a free Jitsi link. Times use the creator's `timeZone`.
+- The home page lists "Your groups" from localStorage (`src/lib/recent.ts`).
+
+Possible next: Google Calendar / Apple .ics import as a backup to screenshots.

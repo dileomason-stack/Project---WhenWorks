@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import CalendarMockup, { type EditableBlock } from "./CalendarMockup";
 import { Button, Spinner } from "./ui";
+import { addDays, isISODate, mondayOf, toISODate, weekdayOf } from "@/lib/dates";
 import { fromHHMM, toHHMM } from "@/lib/schedule";
 import { DAY_NAMES } from "@/lib/types";
 
@@ -68,7 +69,7 @@ export default function ReviewSchedule({
         <div>
           <h2 className="text-lg font-bold">Does this match {forOther ? "their" : "your"} calendar?</h2>
           <p className="text-sm text-stone-500">
-            Tap an event to fix or delete it. Tap an empty spot to add something it missed.
+            Tap an event to fix or delete it, or to mark it as just once. Tap an empty spot to add something it missed.
           </p>
         </div>
         <Button variant="ghost" onClick={onClose} aria-label="Close">
@@ -134,18 +135,44 @@ export default function ReviewSchedule({
               autoFocus={!selected.label}
               className="min-w-40 flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
             />
-            <select
-              value={selected.day}
-              onChange={(e) => update({ day: Number(e.target.value) })}
-              className="rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm"
-              aria-label="Day"
-            >
-              {DAY_NAMES.map((d, i) => (
-                <option key={d} value={i}>
-                  {d}
-                </option>
-              ))}
-            </select>
+            <div className="inline-flex rounded-lg border border-stone-300 p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => update({ date: undefined })}
+                className={`rounded-md px-2.5 py-1.5 font-medium ${!selected.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
+              >
+                Every week
+              </button>
+              <button
+                type="button"
+                onClick={() => !selected.date && update({ date: dateInThisWeek(selected.day) })}
+                className={`rounded-md px-2.5 py-1.5 font-medium ${selected.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
+              >
+                Just once
+              </button>
+            </div>
+            {selected.date ? (
+              <input
+                type="date"
+                value={selected.date}
+                onChange={(e) => isISODate(e.target.value) && update({ date: e.target.value, day: weekdayOf(e.target.value) })}
+                className="rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm"
+                aria-label="Date"
+              />
+            ) : (
+              <select
+                value={selected.day}
+                onChange={(e) => update({ day: Number(e.target.value) })}
+                className="rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm"
+                aria-label="Day"
+              >
+                {DAY_NAMES.map((d, i) => (
+                  <option key={d} value={i}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            )}
             <TimeInput value={selected.start} onChange={(start) => update({ start })} label="Start time" />
             <span className="text-sm text-stone-400">to</span>
             <TimeInput value={selected.end} onChange={(end) => update({ end })} label="End time" />
@@ -204,4 +231,9 @@ function TimeInput({ value, onChange, label }: { value: number; onChange: (v: nu
       className="rounded-lg border border-stone-300 px-2 py-2 text-sm"
     />
   );
+}
+
+// The date of a weekday in the current week, used when someone switches an event to "Just once".
+function dateInThisWeek(day: number) {
+  return addDays(mondayOf(toISODate(new Date())), day);
 }

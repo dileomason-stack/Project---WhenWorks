@@ -1,3 +1,4 @@
+import { addDays, isISODate, weekdayOf } from "./dates";
 import type { BusyBlock, Group } from "./types";
 
 export const SLOT_MINUTES = 15;
@@ -72,16 +73,30 @@ export function cleanBlocks(input: unknown): BusyBlock[] {
   for (const raw of input.slice(0, 300)) {
     if (typeof raw !== "object" || raw === null) continue;
     const r = raw as Record<string, unknown>;
-    const day = Number(r.day);
+    const date = isISODate(r.date) ? r.date : undefined;
+    const day = date ? weekdayOf(date) : Number(r.day);
     const start = Number(r.start);
     const end = Number(r.end);
     if (!Number.isInteger(day) || day < 0 || day > 6) continue;
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
     if (start < 0 || end > 24 * 60 || end <= start) continue;
     const label = typeof r.label === "string" ? r.label.slice(0, 80) : undefined;
-    blocks.push({ day, start: Math.round(start), end: Math.round(end), label });
+    blocks.push({ day, start: Math.round(start), end: Math.round(end), label, ...(date ? { date } : {}) });
   }
   return blocks.sort((a, b) => a.day - b.day || a.start - b.start);
+}
+
+// The group as it looks in one week (given by its Monday): weekly events always count, one-time
+// events only count in their own week.
+export function groupForWeek(group: Group, weekStart: string): Group {
+  const weekEnd = addDays(weekStart, 6);
+  return {
+    ...group,
+    members: group.members.map((m) => ({
+      ...m,
+      busy: m.busy.filter((b) => !b.date || (b.date >= weekStart && b.date <= weekEnd)),
+    })),
+  };
 }
 
 export interface NearMiss {

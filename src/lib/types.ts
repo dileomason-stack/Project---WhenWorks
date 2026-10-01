@@ -9,6 +9,31 @@ export interface BusyBlock {
   start: number;
   end: number;
   label?: string;
+  // Set for one-time events ("YYYY-MM-DD"); they only count in that week. Without it the event repeats weekly.
+  date?: string;
+}
+
+export type Vote = "yes" | "no";
+
+// A time someone suggested meeting at, on a specific date, with everyone's votes by member id.
+export interface Proposal {
+  id: string;
+  date: string;
+  start: number;
+  end: number;
+  createdAt: string;
+  votes: Record<string, Vote>;
+}
+
+// The time the group settled on.
+export interface Meeting {
+  proposalId: string;
+  date: string;
+  start: number;
+  end: number;
+  location?: string;
+  link?: string;
+  confirmedAt: string;
 }
 
 export interface Member {
@@ -27,7 +52,13 @@ export interface Group {
   dayStart: number;
   dayEnd: number;
   createdAt: string;
+  // The creator's time zone, so meeting invites land at the right time.
+  timeZone?: string;
+  // How many people are in the group, if the creator said.
+  expectedCount?: number;
   members: Member[];
+  proposals: Proposal[];
+  meeting: Meeting | null;
 }
 
 // What the server stores: each member also has a secret key so only they can edit their schedule.

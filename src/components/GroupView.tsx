@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import UploadSchedule from "./UploadSchedule";
 import OverlapView from "./OverlapView";
+import PlanCard from "./PlanCard";
 import WeekGrid from "./WeekGrid";
 import { Button, Card, Spinner } from "./ui";
-import { formatRange, freeRangesFor } from "@/lib/schedule";
+import { addDays, formatShortDate, mondayOf, toISODate } from "@/lib/dates";
+import { forgetGroup, rememberGroup } from "@/lib/recent";
+import { formatRange, freeRangesFor, groupForWeek } from "@/lib/schedule";
 import { DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
 
 interface Owned {
@@ -60,11 +63,20 @@ export default function GroupView({ id }: { id: string }) {
   const [focusId, setFocusId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<"free" | "overlap">("free");
+  // Which week the calendar shows: 0 = this week, 1 = next week, and so on.
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/groups/${id}`, { cache: "no-store" });
-    if (res.status === 404) return setNotFound(true);
-    if (res.ok) setGroup(await res.json());
+    if (res.status === 404) {
+      forgetGroup(id);
+      return setNotFound(true);
+    }
+    if (res.ok) {
+      const data: Group = await res.json();
+      setGroup(data);
+      rememberGroup(id, data.name);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -136,7 +148,25 @@ export default function GroupView({ id }: { id: string }) {
       return setActionError((await res.json()).error);
     }
     storeSaved(id, null);
+    forgetGroup(id);
     router.push("/");
+  }
+
+  // Suggesting, voting on and confirming meeting times (see /api/groups/[id]/plan).
+  async function plan(action: string, payload: Record<string, unknown> = {}) {
+    setActionError("");
+    const res = await fetch(`/api/groups/${id}/plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, adminKey: saved.adminKey, ...payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setActionError(data.error);
+    setGroup(data.group);
+  }
+
+  async function suggest(date: string, start: number) {
+    await plan("propose", { date, start, end: Math.min(start + group!.meetingMinutes, 24 * 60), voters: owned });
   }
 
   async function share() {
@@ -177,6 +207,8 @@ export default function GroupView({ id }: { id: string }) {
   const editingMember = editing && editing !== "new" ? memberById(editing) : null;
   const editingOwned = owned.find((o) => o.memberId === editing) ?? null;
   const isEditingSelf = !!myMember && editing === myMember.id;
+  const weekStart = addDays(mondayOf(toISODate(new Date())), 7 * weekOffset);
+  const weekGroup = groupForWeek(group, weekStart);
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-8">
@@ -288,10 +320,21 @@ export default function GroupView({ id }: { id: string }) {
             </Card>
           )}
 
-          <People group={group} meId={myMember?.id} ownedIds={ownedIds} focusId={focusId} setFocusId={setFocusId} />
+          <People
+            group={weekGroup}
+            meId={myMember?.id}
+            ownedIds={ownedIds}
+            focusId={focusId}
+            setFocusId={setFocusId}
+            isAdmin={!!saved.adminKey}
+            plan={plan}
+          />
         </div>
 
         <div className="space-y-6">
+          {(group.members.length > 1 || group.proposals.length > 0 || group.meeting) && (
+            <PlanCard group={group} owners={owned} isAdmin={!!saved.adminKey} plan={plan} />
+          )}
           {group.members.length > 0 && (
             <Card>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -315,10 +358,41 @@ export default function GroupView({ id }: { id: string }) {
                   </div>
                 )}
               </div>
+              <div className="mb-4 flex items-center justify-between rounded-xl border border-stone-200 px-1 py-1">
+                <button
+                  onClick={() => setWeekOffset((w) => Math.max(0, w - 1))}
+                  disabled={weekOffset === 0}
+                  className="rounded-lg px-3 py-1.5 text-lg leading-none text-stone-600 hover:bg-stone-100 disabled:opacity-30"
+                  aria-label="Previous week"
+                >
+                  ‹
+                </button>
+                <div className="text-center text-sm">
+                  <div className="font-semibold">
+                    {weekOffset === 0 ? "This week" : weekOffset === 1 ? "Next week" : `In ${weekOffset} weeks`}
+                  </div>
+                  <div className="text-xs text-stone-500">
+                    {formatShortDate(weekStart)} – {formatShortDate(addDays(weekStart, 6))}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setWeekOffset((w) => Math.min(12, w + 1))}
+                  className="rounded-lg px-3 py-1.5 text-lg leading-none text-stone-600 hover:bg-stone-100"
+                  aria-label="Next week"
+                >
+                  ›
+                </button>
+              </div>
               {view === "overlap" && group.members.length > 1 ? (
-                <OverlapView group={group} />
+                <OverlapView group={weekGroup} weekStart={weekStart} />
               ) : (
-                <WeekGrid group={group} focusId={focusId} />
+                <WeekGrid
+                  group={weekGroup}
+                  focusId={focusId}
+                  weekStart={weekStart}
+                  proposals={group.proposals}
+                  onSuggest={group.meeting ? undefined : suggest}
+                />
               )}
             </Card>
           )}
@@ -361,21 +435,69 @@ function People({
   ownedIds,
   focusId,
   setFocusId,
+  isAdmin,
+  plan,
 }: {
   group: Group;
   meId?: string;
   ownedIds: Set<string>;
   focusId: string | null;
   setFocusId: (id: string | null) => void;
+  isAdmin: boolean;
+  plan: (action: string, payload?: Record<string, unknown>) => Promise<void>;
 }) {
   const focus = group.members.find((m) => m.id === focusId);
+  const [copied, setCopied] = useState(false);
+  const count = group.members.length;
+  const expected = group.expectedCount;
+  const missing = expected ? Math.max(0, expected - count) : null;
+
+  async function copyReminder() {
+    const text = `Hey! Add your schedule for ${group.name} so we can find a time that works for everyone (it takes a minute, just upload a screenshot): ${window.location.origin}/g/${group.id}`;
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   return (
     <Card>
       <h2 className="text-lg font-semibold">
-        {group.members.length === 0
-          ? "Nobody has added a schedule yet"
-          : `${group.members.length} ${group.members.length === 1 ? "person has" : "people have"} added a schedule`}
+        {expected
+          ? `${count} of ${expected} people added`
+          : count === 0
+            ? "Nobody has added a schedule yet"
+            : `${count} ${count === 1 ? "person has" : "people have"} added a schedule`}
       </h2>
+      {expected && (
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-100" aria-hidden>
+          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, (count / expected) * 100)}%` }} />
+        </div>
+      )}
+      {missing !== 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="secondary" onClick={copyReminder} className="py-1.5">
+            {copied ? "Copied! Paste it in the group chat" : "Copy a reminder for the group chat"}
+          </Button>
+          {missing !== null && <span className="text-sm text-stone-500">Waiting on {missing} more</span>}
+        </div>
+      )}
+      {isAdmin && !expected && (
+        <label className="mt-3 flex items-center gap-2 text-sm text-stone-600">
+          How many people are in the group?
+          <select
+            defaultValue=""
+            onChange={(e) => e.target.value && plan("size", { expectedCount: Number(e.target.value) })}
+            className="rounded-lg border border-stone-300 bg-white px-2 py-1"
+          >
+            <option value="">Pick</option>
+            {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {group.members.length > 0 && (
         <>
           <p className="text-sm text-stone-500">Tap someone to see when they&apos;re free.</p>

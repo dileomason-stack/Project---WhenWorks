@@ -101,7 +101,9 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
                     cols >= 3 ? "px-0.5 py-0.5 text-[9px]" : "px-1.5 py-1 text-[11px]"
                   } ${
                     SHADES[col % SHADES.length]
-                  } ${selected ? "z-10 ring-2 ring-stone-900 ring-offset-1" : "hover:brightness-110"}`}
+                  } ${selected ? "z-10 ring-2 ring-stone-900 ring-offset-1" : "hover:brightness-110"} ${
+                    block.date ? "border-2 border-dashed border-white/80" : ""
+                  }`}
                   style={{
                     top: top + 1,
                     height: h - 2,
@@ -110,6 +112,11 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
                   }}
                   title={`${block.label || "Busy"} · ${formatRange(block.start, block.end)}`}
                 >
+                  {block.date && cols < 3 && (
+                    <div className="mb-0.5 inline-block rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">
+                      Once
+                    </div>
+                  )}
                   <div className="font-semibold">{block.label || "Busy"}</div>
                   {cols < 3 && <div className="opacity-90">{formatRange(block.start, block.end)}</div>}
                 </button>

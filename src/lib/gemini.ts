@@ -1,3 +1,4 @@
+import { toISODate } from "./dates";
 import { cleanBlocks, fromHHMM } from "./schedule";
 import type { BusyBlock } from "./types";
 
@@ -6,7 +7,7 @@ const DAY_ENUM = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 const PROMPT = `This image is a screenshot of one person's schedule. It might be a class schedule from a
 college portal, a week view from Google Calendar or Apple Calendar, a work schedule, or a list of times.
 
-List every block of time when this person is BUSY, as a repeating weekly schedule.
+List every block of time when this person is BUSY.
 
 Rules:
 - Output one entry per day. A class on "MWF 9:10-10:00" becomes three entries (Monday, Wednesday, Friday).
@@ -29,6 +30,9 @@ Rules:
 - Use 24-hour "HH:MM" times.
 - "label" is the event's name as written (for example "ENGL 134" or "Work"). Keep it under 30 characters.
 - Skip the all-day row at the top of calendars: all-day events, birthdays, holidays, tasks and reminders.
+- "repeats" says whether the event happens every week. Classes, labs, work shifts, practices, club meetings
+  and anything on a class schedule repeat (true). One-off things like appointments, visits, birthdays,
+  dates, interviews, a single project meeting or a trip are false. When unsure, use true.
 - Skip classes with no meeting time, like ones listed as "asynchronous", "online", "TBA" or "by arrangement".
 - Do not invent blocks. If something is truly unreadable, leave it out and mention it in "notes".
 - "notes" is one short sentence for the person about anything you could not read, or an empty string.
@@ -47,6 +51,7 @@ const RESPONSE_SCHEMA = {
           end: { type: "STRING" },
           label: { type: "STRING" },
           date: { type: "STRING" },
+          repeats: { type: "BOOLEAN" },
         },
         required: ["day", "start", "end"],
       },
@@ -133,7 +138,7 @@ export async function readScheduleScreenshot(
   }
 
   const parsed: {
-    blocks?: { day: string; start: string; end: string; label?: string; date?: string }[];
+    blocks?: { day: string; start: string; end: string; label?: string; date?: string; repeats?: boolean }[];
     notes?: string;
   } =
     JSON.parse(text);
@@ -141,12 +146,28 @@ export async function readScheduleScreenshot(
   const blocks = cleanBlocks(
     (parsed.blocks ?? []).map((b) => ({
       day: weekdayFromDate(b.date) ?? DAY_ENUM.indexOf(b.day),
+      // A one-time event keeps its full date so it only counts in that week. Without a date shown, there's
+      // no way to tell which week it's in, so it's treated as weekly.
+      ...(b.repeats === false && fullDateFrom(b.date) ? { date: fullDateFrom(b.date) } : {}),
       start: fromHHMM(b.start ?? ""),
       end: fromHHMM(b.end ?? ""),
       label: b.label?.trim() || undefined,
     })),
   );
   return { blocks, notes: parsed.notes?.trim() ?? "" };
+}
+
+// "09-28" → "2026-09-28", using whichever year puts the date closest to today.
+export function fullDateFrom(date: string | undefined, today = new Date()): string | undefined {
+  const match = /^(\d{1,2})-(\d{1,2})$/.exec(date?.trim() ?? "");
+  if (!match || weekdayFromDate(date, today) === null) return undefined;
+  const month = Number(match[1]) - 1;
+  const day = Number(match[2]);
+  const candidates = [-1, 0, 1].map((dy) => new Date(today.getFullYear() + dy, month, day));
+  const closest = candidates.reduce((a, b) =>
+    Math.abs(b.getTime() - today.getTime()) < Math.abs(a.getTime() - today.getTime()) ? b : a,
+  );
+  return toISODate(closest);
 }
 
 // Calendars that label columns only with dates ("SEP 28") leave the AI guessing the weekday, and it

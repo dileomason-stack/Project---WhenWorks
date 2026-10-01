@@ -2,17 +2,26 @@
 
 import { useMemo, useState } from "react";
 import { buildSlots, formatRange, formatTime, SLOT_MINUTES, usefulNearMisses, type NearMiss, type Slot } from "@/lib/schedule";
-import { DAY_SHORT, type Group } from "@/lib/types";
+import { addDays, formatLongDate, parseISODate } from "@/lib/dates";
+import { DAY_SHORT, type Group, type Proposal } from "@/lib/types";
+import { Button } from "./ui";
 
 interface Props {
   group: Group;
   focusId: string | null;
+  weekStart: string; // The Monday of the week shown.
+  proposals: Proposal[];
+  onSuggest?: (date: string, start: number) => Promise<void>;
 }
 
 const ROW_PX = 11;
 const FLEX_OPTIONS = [0, 15, 30] as const;
 
-export default function WeekGrid({ group, focusId }: Props) {
+export default function WeekGrid({ group, focusId, weekStart, proposals, onSuggest }: Props) {
+  const [suggesting, setSuggesting] = useState(false);
+  const dateOf = (day: number) => addDays(weekStart, day);
+  const isProposed = (slot: Slot) =>
+    proposals.some((p) => p.date === dateOf(slot.day) && p.start <= slot.start && p.end > slot.start);
   const slots = useMemo(() => buildSlots(group), [group]);
   const [picked, setPicked] = useState<Slot | null>(null);
   // How late or early someone could be for a time to count as a near miss (0 = don't show near misses).
@@ -59,7 +68,7 @@ export default function WeekGrid({ group, focusId }: Props) {
         <div className="w-11 shrink-0" />
         {group.days.map((d) => (
           <div key={d} className="flex-1 pb-1 text-center text-xs font-semibold text-stone-600">
-            {DAY_SHORT[d]}
+            {DAY_SHORT[d]} <span className="font-normal text-stone-400">{parseISODate(dateOf(d)).getDate()}</span>
           </div>
         ))}
       </div>
@@ -85,7 +94,7 @@ export default function WeekGrid({ group, focusId }: Props) {
                   title={`${formatRange(slot.start, slot.end)} · ${slot.freeIds.length}/${total} free`}
                   className={`block w-full ${cellClass(slot)} ${
                     slot.start % 60 === 0 ? "border-t border-stone-200" : ""
-                  } ${isPicked ? "outline-2 -outline-offset-2 outline-stone-900" : ""}`}
+                  } ${isPicked ? "outline-2 -outline-offset-2 outline-stone-900" : isProposed(slot) ? "shadow-[inset_3px_0_0_#1c1917]" : ""}`}
                   style={{ height: ROW_PX }}
                 />
               );
@@ -98,7 +107,7 @@ export default function WeekGrid({ group, focusId }: Props) {
         {picked ? (
           <div className="rounded-xl bg-stone-50 px-3 py-2">
             <div className="font-semibold">
-              {DAY_SHORT[picked.day]} {formatRange(picked.start, picked.start + SLOT_MINUTES)}
+              {formatLongDate(dateOf(picked.day))}, {formatRange(picked.start, picked.start + SLOT_MINUTES)}
             </div>
             {pickedMisses ? (
               <ul className="mt-1 space-y-0.5 text-amber-900">
@@ -127,6 +136,26 @@ export default function WeekGrid({ group, focusId }: Props) {
                 )}
               </>
             )}
+            {onSuggest && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-2">
+                <Button
+                  variant={picked.freeIds.length === total ? "primary" : "secondary"}
+                  disabled={suggesting}
+                  className="py-1.5"
+                  onClick={async () => {
+                    setSuggesting(true);
+                    await onSuggest(dateOf(picked.day), picked.start);
+                    setSuggesting(false);
+                    setPicked(null);
+                  }}
+                >
+                  Suggest {formatRange(picked.start, Math.min(picked.start + group.meetingMinutes, 24 * 60))}
+                </Button>
+                {picked.freeIds.length < total && (
+                  <span className="text-xs text-stone-500">Not everyone is free for all of it.</span>
+                )}
+              </div>
+            )}
           </div>
         ) : focus ? (
           <Legend items={[["bg-emerald-500", `${focus.name} is free`], ["bg-white border border-stone-300", "Busy"]]} />
@@ -137,7 +166,7 @@ export default function WeekGrid({ group, focusId }: Props) {
               ...(flex > 0 ? ([["bg-amber-300", "Near miss"]] as [string, string][]) : []),
               ["bg-white border border-stone-300", "Someone's busy"],
             ]}
-            hint="Tap a time to see who's free"
+            hint={onSuggest ? "Tap a time to see who's free or suggest it" : "Tap a time to see who's free"}
           />
         )}
       </div>

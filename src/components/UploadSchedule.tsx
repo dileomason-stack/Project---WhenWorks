@@ -120,7 +120,7 @@ export default function UploadSchedule({ forOther = false, initialName = "", ini
     try {
       await onSave(
         name.trim(),
-        sortBlocks(blocks.map(({ day, start, end, label }) => ({ day, start, end, label }))),
+        sortBlocks(blocks.map(({ day, start, end, label, date }) => ({ day, start, end, label, ...(date ? { date } : {}) }))),
       );
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't save. Try again.");

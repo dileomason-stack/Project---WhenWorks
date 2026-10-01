@@ -1,14 +1,14 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
-import type { Group, StoredGroup, StoredMember } from "./types";
-
 import { neon } from "@neondatabase/serverless";
+import type { Group, Meeting, Proposal, StoredGroup, StoredMember, Vote } from "./types";
 
 // Groups are stored in the Neon Postgres database connected to the Vercel project when it's set up
 // (DATABASE_URL), and in a local JSON file otherwise (for running on your own computer).
 //
-// Each person's schedule is its own row, so two people saving at the same moment can't overwrite each other.
+// Each person's schedule, each suggested time and each vote is its own row, so people saving at the
+// same moment can't overwrite each other.
 
 export function newId(bytes = 6): string {
   return randomBytes(bytes).toString("base64url");
@@ -23,6 +23,16 @@ export function toPublic(group: StoredGroup): Group {
   };
 }
 
+type Settings = Omit<StoredGroup, "members" | "proposals" | "meeting">;
+
+function settingsOf(group: StoredGroup): Settings {
+  const { members: _m, proposals: _p, meeting: _meeting, ...settings } = group;
+  void _m;
+  void _p;
+  void _meeting;
+  return settings;
+}
+
 // --- Postgres ---
 
 const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
@@ -35,6 +45,7 @@ function ensureSchema() {
       settings jsonb NOT NULL,
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
+    await sql!`ALTER TABLE groups ADD COLUMN IF NOT EXISTS meeting jsonb`;
     await sql!`CREATE TABLE IF NOT EXISTS members (
       group_id text NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       id text NOT NULL,
@@ -42,11 +53,31 @@ function ensureSchema() {
       added_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (group_id, id)
     )`;
+    await sql!`CREATE TABLE IF NOT EXISTS proposals (
+      group_id text NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      id text NOT NULL,
+      data jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (group_id, id)
+    )`;
+    await sql!`CREATE TABLE IF NOT EXISTS votes (
+      group_id text NOT NULL,
+      proposal_id text NOT NULL,
+      member_id text NOT NULL,
+      vote text NOT NULL,
+      PRIMARY KEY (group_id, proposal_id, member_id),
+      FOREIGN KEY (group_id, proposal_id) REFERENCES proposals(group_id, id) ON DELETE CASCADE
+    )`;
   })().catch((err) => {
     schemaReady = null;
     throw err;
   });
   return schemaReady;
+}
+
+async function db() {
+  await ensureSchema();
+  return sql!;
 }
 
 // --- Local file ---
@@ -56,7 +87,12 @@ let queue: Promise<unknown> = Promise.resolve();
 
 async function readFile(): Promise<Record<string, StoredGroup>> {
   try {
-    return JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    const all: Record<string, StoredGroup> = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    for (const g of Object.values(all)) {
+      g.proposals ??= [];
+      g.meeting ??= null;
+    }
+    return all;
   } catch {
     return {};
   }
@@ -77,17 +113,29 @@ function changeFile<T>(change: (all: Record<string, StoredGroup>) => T): Promise
   return next;
 }
 
-// --- Shared interface ---
+// --- Groups ---
 
 export async function getGroup(id: string): Promise<StoredGroup | null> {
   if (!sql) return (await readFile())[id] ?? null;
-  await ensureSchema();
-  const rows = await sql`
-    SELECT g.settings,
-      COALESCE((SELECT json_agg(m.data ORDER BY m.added_at) FROM members m WHERE m.group_id = g.id), '[]') AS members
+  const q = await db();
+  const rows = await q`
+    SELECT g.settings, g.meeting,
+      COALESCE((SELECT json_agg(m.data ORDER BY m.added_at) FROM members m WHERE m.group_id = g.id), '[]') AS members,
+      COALESCE((
+        SELECT json_agg(p.data || jsonb_build_object('votes', COALESCE(
+          (SELECT jsonb_object_agg(v.member_id, v.vote) FROM votes v WHERE v.group_id = p.group_id AND v.proposal_id = p.id),
+          '{}'::jsonb)) ORDER BY p.created_at)
+        FROM proposals p WHERE p.group_id = g.id
+      ), '[]') AS proposals
     FROM groups g WHERE g.id = ${id}`;
   if (rows.length === 0) return null;
-  return { ...(rows[0].settings as Omit<StoredGroup, "members">), members: rows[0].members as StoredMember[] };
+  const row = rows[0];
+  return {
+    ...(row.settings as Settings),
+    members: row.members as StoredMember[],
+    proposals: row.proposals as Proposal[],
+    meeting: (row.meeting as Meeting | null) ?? null,
+  };
 }
 
 export async function createGroup(group: StoredGroup): Promise<void> {
@@ -97,11 +145,35 @@ export async function createGroup(group: StoredGroup): Promise<void> {
     });
     return;
   }
-  await ensureSchema();
-  const settings: Omit<StoredGroup, "members"> & { members?: unknown } = { ...group };
-  delete settings.members;
-  await sql`INSERT INTO groups (id, settings) VALUES (${group.id}, ${JSON.stringify(settings)})`;
+  const q = await db();
+  await q`INSERT INTO groups (id, settings) VALUES (${group.id}, ${JSON.stringify(settingsOf(group))})`;
 }
+
+// Changes some of a group's settings (like how many people are in it).
+export async function updateSettings(id: string, changes: Partial<Settings>): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      if (all[id]) Object.assign(all[id], changes);
+    });
+    return;
+  }
+  const q = await db();
+  await q`UPDATE groups SET settings = settings || ${JSON.stringify(changes)}::jsonb, updated_at = now() WHERE id = ${id}`;
+}
+
+// Deletes a group along with everyone's schedules, suggested times and votes.
+export async function deleteGroup(id: string): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      delete all[id];
+    });
+    return;
+  }
+  const q = await db();
+  await q`DELETE FROM groups WHERE id = ${id}`;
+}
+
+// --- Schedules ---
 
 // Adds or replaces one person's schedule in a group.
 export async function saveMember(groupId: string, member: StoredMember): Promise<void> {
@@ -115,34 +187,84 @@ export async function saveMember(groupId: string, member: StoredMember): Promise
     });
     return;
   }
-  await ensureSchema();
-  await sql`
+  const q = await db();
+  await q`
     INSERT INTO members (group_id, id, data) VALUES (${groupId}, ${member.id}, ${JSON.stringify(member)})
     ON CONFLICT (group_id, id) DO UPDATE SET data = EXCLUDED.data`;
-  await sql`UPDATE groups SET updated_at = now() WHERE id = ${groupId}`;
+  await q`UPDATE groups SET updated_at = now() WHERE id = ${groupId}`;
 }
 
-// Deletes a group and everyone's schedules in it.
-export async function deleteGroup(id: string): Promise<void> {
-  if (!sql) {
-    await changeFile((all) => {
-      delete all[id];
-    });
-    return;
-  }
-  await ensureSchema();
-  await sql`DELETE FROM groups WHERE id = ${id}`;
-}
-
-// Removes one person's schedule from a group.
+// Removes one person's schedule (and their votes) from a group.
 export async function deleteMember(groupId: string, memberId: string): Promise<void> {
   if (!sql) {
     await changeFile((all) => {
       const group = all[groupId];
-      if (group) group.members = group.members.filter((m) => m.id !== memberId);
+      if (!group) return;
+      group.members = group.members.filter((m) => m.id !== memberId);
+      for (const p of group.proposals) delete p.votes[memberId];
     });
     return;
   }
-  await ensureSchema();
-  await sql`DELETE FROM members WHERE group_id = ${groupId} AND id = ${memberId}`;
+  const q = await db();
+  await q`DELETE FROM votes WHERE group_id = ${groupId} AND member_id = ${memberId}`;
+  await q`DELETE FROM members WHERE group_id = ${groupId} AND id = ${memberId}`;
+}
+
+// --- Picking a time ---
+
+export async function addProposal(groupId: string, proposal: Proposal): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      all[groupId]?.proposals.push(proposal);
+    });
+    return;
+  }
+  const q = await db();
+  const { votes, ...data } = proposal;
+  await q`INSERT INTO proposals (group_id, id, data) VALUES (${groupId}, ${proposal.id}, ${JSON.stringify(data)})`;
+  for (const [memberId, vote] of Object.entries(votes)) await setVote(groupId, proposal.id, memberId, vote);
+}
+
+export async function deleteProposal(groupId: string, proposalId: string): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      const group = all[groupId];
+      if (group) group.proposals = group.proposals.filter((p) => p.id !== proposalId);
+    });
+    return;
+  }
+  const q = await db();
+  await q`DELETE FROM proposals WHERE group_id = ${groupId} AND id = ${proposalId}`;
+}
+
+// Records someone's vote on a suggested time, or clears it when vote is null.
+export async function setVote(groupId: string, proposalId: string, memberId: string, vote: Vote | null): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      const proposal = all[groupId]?.proposals.find((p) => p.id === proposalId);
+      if (!proposal) return;
+      if (vote) proposal.votes[memberId] = vote;
+      else delete proposal.votes[memberId];
+    });
+    return;
+  }
+  const q = await db();
+  if (vote) {
+    await q`
+      INSERT INTO votes (group_id, proposal_id, member_id, vote) VALUES (${groupId}, ${proposalId}, ${memberId}, ${vote})
+      ON CONFLICT (group_id, proposal_id, member_id) DO UPDATE SET vote = EXCLUDED.vote`;
+  } else {
+    await q`DELETE FROM votes WHERE group_id = ${groupId} AND proposal_id = ${proposalId} AND member_id = ${memberId}`;
+  }
+}
+
+export async function setMeeting(groupId: string, meeting: Meeting | null): Promise<void> {
+  if (!sql) {
+    await changeFile((all) => {
+      if (all[groupId]) all[groupId].meeting = meeting;
+    });
+    return;
+  }
+  const q = await db();
+  await q`UPDATE groups SET meeting = ${meeting ? JSON.stringify(meeting) : null}::jsonb, updated_at = now() WHERE id = ${groupId}`;
 }

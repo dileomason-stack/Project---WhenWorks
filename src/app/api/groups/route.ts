@@ -24,9 +24,25 @@ export async function POST(request: Request) {
     dayStart,
     dayEnd,
     createdAt: new Date().toISOString(),
+    timeZone: validTimeZone(body?.timeZone) ? body.timeZone : "America/Los_Angeles",
+    ...(Number.isInteger(body?.expectedCount) && body.expectedCount >= 2 && body.expectedCount <= 30
+      ? { expectedCount: body.expectedCount }
+      : {}),
     members: [],
+    proposals: [],
+    meeting: null,
     adminKey: newId(12),
   };
   await createGroup(group);
   return Response.json({ ...toPublic(group), adminKey: group.adminKey }, { status: 201 });
+}
+
+function validTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
 }

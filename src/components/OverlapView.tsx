@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { layoutDay } from "./CalendarMockup";
 import { buildSlots, formatRange, formatTime, SLOT_MINUTES } from "@/lib/schedule";
+import { addDays, parseISODate } from "@/lib/dates";
 import { DAY_NAMES, DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
 
 // One color per person, in a fixed order checked for colorblind-safe contrast between neighbors.
@@ -15,7 +16,7 @@ const HOUR_PX = 44;
 
 type Event = BusyBlock & { memberId: string; key: string };
 
-export default function OverlapView({ group }: { group: Group }) {
+export default function OverlapView({ group, weekStart }: { group: Group; weekStart: string }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Event | null>(null);
   const colors = new Map(group.members.map((m, i) => [m.id, colorForIndex(i)]));
@@ -87,7 +88,8 @@ export default function OverlapView({ group }: { group: Group }) {
             <div className="w-11 shrink-0" />
             {group.days.map((d) => (
               <div key={d} className="min-w-[72px] flex-1 text-center text-xs font-semibold text-stone-600">
-                {DAY_SHORT[d]}
+                {DAY_SHORT[d]}{" "}
+                <span className="font-normal text-stone-400">{parseISODate(addDays(weekStart, d)).getDate()}</span>
               </div>
             ))}
           </div>
@@ -156,6 +158,7 @@ export default function OverlapView({ group }: { group: Group }) {
               <b>{names.get(picked.memberId)}</b> · {picked.label || "Busy"}
               <div className="text-stone-500">
                 {DAY_NAMES[picked.day]}, {formatRange(picked.start, picked.end)}
+                {picked.date ? " (just this week)" : " (every week)"}
               </div>
             </div>
           </div>

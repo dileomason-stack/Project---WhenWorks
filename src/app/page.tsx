@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { forgetGroup, listRecent, type RecentGroup } from "@/lib/recent";
 import { Button, Card, Spinner } from "@/components/ui";
 import { formatTime } from "@/lib/schedule";
 import { DAY_SHORT, type MeetingMode } from "@/lib/types";
@@ -16,6 +18,13 @@ export default function Home() {
   const [days, setDays] = useState([0, 1, 2, 3, 4]);
   const [dayStart, setDayStart] = useState(8 * 60);
   const [dayEnd, setDayEnd] = useState(22 * 60);
+  const [expectedCount, setExpectedCount] = useState<number | "">("");
+  const [recent, setRecent] = useState<RecentGroup[]>([]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the saved list only exists in the browser
+    setRecent(listRecent());
+  }, []);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -30,7 +39,16 @@ export default function Home() {
       const res = await fetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, mode, meetingMinutes, days, dayStart, dayEnd }),
+        body: JSON.stringify({
+          name,
+          mode,
+          meetingMinutes,
+          days,
+          dayStart,
+          dayEnd,
+          expectedCount: expectedCount || undefined,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -55,7 +73,34 @@ export default function Home() {
         exactly when you&apos;re all free.
       </p>
 
-      <Card className="mt-8">
+      {recent.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-stone-600">Your groups</h2>
+          <ul className="mt-2 divide-y divide-stone-100 overflow-hidden rounded-2xl border border-stone-200 bg-white">
+            {recent.map((g) => (
+              <li key={g.id} className="flex items-center gap-2">
+                <Link href={`/g/${g.id}`} className="min-w-0 flex-1 truncate px-4 py-3 font-medium hover:bg-stone-50">
+                  {g.name}
+                </Link>
+                <button
+                  onClick={() => {
+                    forgetGroup(g.id);
+                    setRecent(listRecent());
+                  }}
+                  className="px-4 py-3 text-sm text-stone-400 hover:text-stone-700"
+                  aria-label={`Remove ${g.name} from this list`}
+                  title="Remove from this list (doesn't delete the group)"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <h2 className="mt-8 text-sm font-semibold text-stone-600">Start a new group</h2>
+        </section>
+      )}
+
+      <Card className={recent.length ? "mt-2" : "mt-8"}>
         <form onSubmit={create} className="space-y-6">
           <label className="block">
             <span className="text-sm font-semibold">Group name</span>
@@ -67,6 +112,23 @@ export default function Home() {
               className="mt-1.5 w-full rounded-xl border border-stone-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               autoFocus
             />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-semibold">How many people are in the group?</span>
+            <select
+              value={expectedCount}
+              onChange={(e) => setExpectedCount(e.target.value ? Number(e.target.value) : "")}
+              className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5"
+            >
+              <option value="">Not sure yet</option>
+              {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+                <option key={n} value={n}>
+                  {n} people
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-stone-500">So the page can show who still needs to add theirs.</span>
           </label>
 
           <div>
