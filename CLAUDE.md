@@ -26,7 +26,7 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
 - Picking a time: `/api/groups/[id]/plan` handles propose / vote / confirm / unconfirm / size. Votes are per
   member and need that member's edit key; the creator's `adminKey` can confirm anytime, others once everyone
   said yes. The confirmed meeting has a Google Calendar link and `/api/groups/[id]/invite.ics` (Apple/Outlook).
-  Online groups default to a free Jitsi link. Times use the creator's `timeZone`.
+  Online groups get a "Create a Google Meet" button (opens meet.google.com/new; the user pastes the link back) with a free Jitsi link as a fallback. Auto-creating Meet links would need Google OAuth + app verification, deliberately skipped. Times use the creator's `timeZone`.
 - The home page lists "Your groups" from localStorage (`src/lib/recent.ts`).
 
 Possible next: Google Calendar / Apple .ics import as a backup to screenshots.

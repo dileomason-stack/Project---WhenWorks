@@ -161,32 +161,52 @@ function ConfirmForm({
 }) {
   const online = group.mode === "online";
   const [location, setLocation] = useState("");
-  // A free Jitsi room works without anyone signing up; people can swap in their own Zoom or Meet link.
-  const [link, setLink] = useState(
-    () => `https://meet.jit.si/WhenWorks-${group.name.replace(/[^A-Za-z0-9]+/g, "").slice(0, 24)}-${group.id}`,
-  );
+  const [link, setLink] = useState("");
   const [saving, setSaving] = useState(false);
+  const jitsiLink = `https://meet.jit.si/WhenWorks-${group.name.replace(/[^A-Za-z0-9]+/g, "").slice(0, 24)}-${group.id}`;
+  // People often paste "meet.google.com/abc-defg-hij" without the https:// part.
+  const cleanLink = link.trim() && !/^https?:\/\//i.test(link.trim()) ? `https://${link.trim()}` : link.trim();
 
   async function confirm() {
     setSaving(true);
-    await plan("confirm", { proposalId: proposal.id, ...(online ? { link } : { location }) });
+    await plan("confirm", { proposalId: proposal.id, ...(online ? { link: cleanLink } : { location }) });
     setSaving(false);
   }
 
   return (
     <div className="mt-3 space-y-2 rounded-lg bg-white p-3">
       {online ? (
-        <label className="block text-sm">
-          <span className="font-semibold">Video call link</span>
+        <div className="space-y-2 text-sm">
+          <div className="font-semibold">Video call link</div>
+          <ol className="list-decimal space-y-1 pl-5 text-stone-600">
+            <li>
+              <a
+                href="https://meet.google.com/new"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-lg bg-stone-900 px-3 py-1.5 font-semibold text-white hover:bg-stone-700"
+              >
+                Create a Google Meet ↗
+              </a>{" "}
+              opens a new meeting in another tab (sign in with Google if it asks).
+            </li>
+            <li>Copy the meeting link (it looks like meet.google.com/abc-defg-hij) and paste it here:</li>
+          </ol>
           <input
             value={link}
             onChange={(e) => setLink(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
+            placeholder="meet.google.com/abc-defg-hij"
+            className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
+            aria-label="Video call link"
           />
-          <span className="text-xs text-stone-500">
-            A free Jitsi call (no account needed). Paste a Zoom or Google Meet link instead if you prefer.
-          </span>
-        </label>
+          <p className="text-xs text-stone-500">
+            Zoom links work too. No Google account?{" "}
+            <button type="button" onClick={() => setLink(jitsiLink)} className="font-medium text-emerald-700 underline">
+              Use a free Jitsi link instead
+            </button>
+            .
+          </p>
+        </div>
       ) : (
         <label className="block text-sm">
           <span className="font-semibold">Where are you meeting?</span>
@@ -203,7 +223,7 @@ function ConfirmForm({
         <Button variant="secondary" onClick={onCancel} className="py-1.5">
           Cancel
         </Button>
-        <Button onClick={confirm} disabled={saving || (online && !link.trim())} className="flex-1 py-1.5">
+        <Button onClick={confirm} disabled={saving || (online && !cleanLink)} className="flex-1 py-1.5">
           {saving && <Spinner />} Confirm meeting
         </Button>
       </div>
