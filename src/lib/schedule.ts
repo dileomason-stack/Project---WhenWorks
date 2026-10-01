@@ -51,53 +51,6 @@ export function buildSlots(group: Group): Slot[][] {
   });
 }
 
-export interface Window {
-  day: number;
-  start: number;
-  end: number;
-  freeIds: string[];
-}
-
-// Finds stretches of time where the same set of people (of at least `minFree`) are free,
-// long enough to fit the meeting. Ranked by how many people can make it, then length.
-export function findWindows(group: Group, minFree: number): Window[] {
-  const windows: Window[] = [];
-  for (const daySlots of buildSlots(group)) {
-    let current: Window | null = null;
-    const flush = () => {
-      if (current && current.end - current.start >= group.meetingMinutes) windows.push(current);
-      current = null;
-    };
-    for (const slot of daySlots) {
-      const key = slot.freeIds.join(",");
-      if (slot.freeIds.length >= minFree && current && current.freeIds.join(",") === key) {
-        current.end = slot.end;
-      } else {
-        flush();
-        if (slot.freeIds.length >= minFree) current = { ...slot };
-      }
-    }
-    flush();
-  }
-  return windows.sort(
-    (a, b) => b.freeIds.length - a.freeIds.length || a.day - b.day || a.start - b.start,
-  );
-}
-
-export function everyoneFreeWindows(group: Group): Window[] {
-  if (group.members.length === 0) return [];
-  return findWindows(group, group.members.length).sort((a, b) => a.day - b.day || a.start - b.start);
-}
-
-// When no time works for everyone, show the times that work for the most people.
-export function bestPartialWindows(group: Group, limit = 6): Window[] {
-  for (let need = group.members.length - 1; need >= 1; need--) {
-    const found = findWindows(group, need);
-    if (found.length > 0) return found.slice(0, limit);
-  }
-  return [];
-}
-
 // Free time for one person, as ranges within the group's day window.
 export function freeRangesFor(group: Group, busy: BusyBlock[], day: number): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
@@ -129,4 +82,62 @@ export function cleanBlocks(input: unknown): BusyBlock[] {
     blocks.push({ day, start: Math.round(start), end: Math.round(end), label });
   }
   return blocks.sort((a, b) => a.day - b.day || a.start - b.start);
+}
+
+export interface NearMiss {
+  memberId: string;
+  // "late": their event ends soon after this time, so they'd arrive late.
+  // "early": their event starts shortly before this time, so they'd have to leave early.
+  kind: "late" | "early";
+  minutes: number;
+  label?: string;
+  eventStart: number;
+  eventEnd: number;
+}
+
+// For a slot where some people are busy, checks whether each busy person is only busy because of an
+// event that ends or starts within `withinMinutes`. If so, returns how each of them is affected;
+// otherwise null (someone is properly busy then).
+export function nearMisses(group: Group, slot: Slot, withinMinutes: number): NearMiss[] | null {
+  const busyMembers = group.members.filter((m) => !slot.freeIds.includes(m.id));
+  if (busyMembers.length === 0) return null;
+  const result: NearMiss[] = [];
+  for (const m of busyMembers) {
+    const blocks = m.busy.filter((b) => b.day === slot.day && b.start < slot.end && b.end > slot.start);
+    const eventStart = Math.min(...blocks.map((b) => b.start));
+    const eventEnd = Math.max(...blocks.map((b) => b.end));
+    const label = blocks.map((b) => b.label).find(Boolean);
+    const late = eventEnd - slot.start;
+    const early = slot.end - eventStart;
+    if (late <= withinMinutes) result.push({ memberId: m.id, kind: "late", minutes: late, label, eventStart, eventEnd });
+    else if (early <= withinMinutes) result.push({ memberId: m.id, kind: "early", minutes: early, label, eventStart, eventEnd });
+    else return null;
+  }
+  return result;
+}
+
+// Near misses worth showing: ones that stretch a time when everyone is free. A stretch just before an
+// everyone-free time counts if the busy people would arrive late; a stretch just after counts if they'd
+// leave early. Keyed by `${day}-${start}`.
+export function usefulNearMisses(group: Group, withinMinutes: number): Map<string, NearMiss[]> {
+  const result = new Map<string, NearMiss[]>();
+  const total = group.members.length;
+  if (total < 2) return result;
+  for (const daySlots of buildSlots(group)) {
+    const green = daySlots.map((s) => s.freeIds.length === total);
+    const misses = daySlots.map((s, i) => (green[i] ? null : nearMisses(group, s, withinMinutes)));
+    for (let a = 0; a < daySlots.length; a++) {
+      if (!misses[a]) continue;
+      let b = a;
+      while (b + 1 < daySlots.length && misses[b + 1]) b++;
+      const run = misses.slice(a, b + 1) as NearMiss[][];
+      const allLate = run.every((slot) => slot.every((m) => m.kind === "late"));
+      const allEarly = run.every((slot) => slot.every((m) => m.kind === "early"));
+      if ((green[b + 1] && allLate) || (green[a - 1] && allEarly)) {
+        for (let i = a; i <= b; i++) result.set(`${daySlots[i].day}-${daySlots[i].start}`, misses[i]!);
+      }
+      a = b;
+    }
+  }
+  return result;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildSlots, formatRange, formatTime, SLOT_MINUTES, type Slot } from "@/lib/schedule";
+import { buildSlots, formatRange, formatTime, SLOT_MINUTES, usefulNearMisses, type NearMiss, type Slot } from "@/lib/schedule";
 import { DAY_SHORT, type Group } from "@/lib/types";
 
 interface Props {
@@ -10,30 +10,51 @@ interface Props {
 }
 
 const ROW_PX = 11;
+const FLEX_OPTIONS = [0, 15, 30] as const;
 
 export default function WeekGrid({ group, focusId }: Props) {
   const slots = useMemo(() => buildSlots(group), [group]);
   const [picked, setPicked] = useState<Slot | null>(null);
+  // How late or early someone could be for a time to count as a near miss (0 = don't show near misses).
+  const [flex, setFlex] = useState<(typeof FLEX_OPTIONS)[number]>(0);
+  const misses = useMemo(() => (flex > 0 ? usefulNearMisses(group, flex) : new Map<string, NearMiss[]>()), [group, flex]);
   const total = group.members.length;
   const focus = group.members.find((m) => m.id === focusId) ?? null;
   const names = new Map(group.members.map((m) => [m.id, m.name]));
 
   function cellClass(slot: Slot) {
-    if (total === 0) return "bg-stone-50";
-    if (focus) return slot.freeIds.includes(focus.id) ? "bg-sky-400" : "bg-stone-100";
-    const n = slot.freeIds.length;
-    if (n === total) return "bg-emerald-500";
-    const ratio = n / total;
-    if (ratio >= 0.75) return "bg-emerald-300";
-    if (ratio >= 0.5) return "bg-emerald-200";
-    if (ratio > 0) return "bg-emerald-100";
-    return "bg-stone-100";
+    if (focus) return slot.freeIds.includes(focus.id) ? "bg-emerald-500" : "bg-white";
+    if (total > 0 && slot.freeIds.length === total) return "bg-emerald-500";
+    if (misses.has(`${slot.day}-${slot.start}`)) return "bg-amber-300";
+    return "bg-white";
   }
 
   const rows = slots[0]?.length ?? 0;
+  const pickedMisses = picked ? misses.get(`${picked.day}-${picked.start}`) : undefined;
 
   return (
     <div>
+      {!focus && total > 1 && (
+        <div className="mb-4 rounded-xl bg-stone-50 p-3">
+          <div className="text-sm font-semibold">Show near misses</div>
+          <p className="text-xs text-stone-500">
+            Highlights times that would work if someone arrived late or left early, so you can ask them.
+          </p>
+          <div className="mt-2 inline-flex rounded-lg border border-stone-200 bg-white p-0.5 text-sm">
+            {FLEX_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setFlex(option)}
+                className={`rounded-md px-3 py-1 font-medium ${flex === option ? "bg-stone-900 text-white" : "text-stone-600"}`}
+              >
+                {option === 0 ? "Off" : `Up to ${option} min`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex">
         <div className="w-11 shrink-0" />
         {group.days.map((d) => (
@@ -53,7 +74,7 @@ export default function WeekGrid({ group, focusId }: Props) {
           )}
         </div>
         {slots.map((daySlots, di) => (
-          <div key={di} className="flex-1 border-l border-white">
+          <div key={di} className="flex-1 border-l border-stone-200 first:border-l-0">
             {daySlots.map((slot, i) => {
               const isPicked = picked && picked.day === slot.day && picked.start === slot.start;
               return (
@@ -63,7 +84,7 @@ export default function WeekGrid({ group, focusId }: Props) {
                   onClick={() => setPicked(isPicked ? null : slot)}
                   title={`${formatRange(slot.start, slot.end)} · ${slot.freeIds.length}/${total} free`}
                   className={`block w-full ${cellClass(slot)} ${
-                    slot.start % 60 === 0 ? "border-t border-white" : ""
+                    slot.start % 60 === 0 ? "border-t border-stone-200" : ""
                   } ${isPicked ? "outline-2 -outline-offset-2 outline-stone-900" : ""}`}
                   style={{ height: ROW_PX }}
                 />
@@ -79,27 +100,42 @@ export default function WeekGrid({ group, focusId }: Props) {
             <div className="font-semibold">
               {DAY_SHORT[picked.day]} {formatRange(picked.start, picked.start + SLOT_MINUTES)}
             </div>
-            <div className="text-emerald-700">
-              Free: {picked.freeIds.map((id) => names.get(id)).join(", ") || "nobody"}
-            </div>
-            {picked.freeIds.length < total && (
-              <div className="text-stone-500">
-                Busy:{" "}
-                {group.members
-                  .filter((m) => !picked.freeIds.includes(m.id))
-                  .map((m) => m.name)
-                  .join(", ")}
-              </div>
+            {pickedMisses ? (
+              <ul className="mt-1 space-y-0.5 text-amber-900">
+                {pickedMisses.map((miss) => (
+                  <li key={miss.memberId}>
+                    <b>{names.get(miss.memberId)}</b>{" "}
+                    {miss.kind === "late"
+                      ? `has ${miss.label ?? "something"} until ${formatTime(miss.eventEnd)}, so they'd arrive ${miss.minutes} min late.`
+                      : `has ${miss.label ?? "something"} at ${formatTime(miss.eventStart)}, so they'd leave ${miss.minutes} min early.`}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <>
+                <div className="text-emerald-700">
+                  Free: {picked.freeIds.map((id) => names.get(id)).join(", ") || "nobody"}
+                </div>
+                {picked.freeIds.length < total && (
+                  <div className="text-stone-500">
+                    Busy:{" "}
+                    {group.members
+                      .filter((m) => !picked.freeIds.includes(m.id))
+                      .map((m) => m.name)
+                      .join(", ")}
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : focus ? (
-          <Legend items={[["bg-sky-400", `${focus.name} is free`], ["bg-stone-100", "Busy"]]} />
+          <Legend items={[["bg-emerald-500", `${focus.name} is free`], ["bg-white border border-stone-300", "Busy"]]} />
         ) : (
           <Legend
             items={[
               ["bg-emerald-500", "Everyone free"],
-              ["bg-emerald-200", "Some free"],
-              ["bg-stone-100", "Nobody free"],
+              ...(flex > 0 ? ([["bg-amber-300", "Near miss"]] as [string, string][]) : []),
+              ["bg-white border border-stone-300", "Someone's busy"],
             ]}
             hint="Tap a time to see who's free"
           />

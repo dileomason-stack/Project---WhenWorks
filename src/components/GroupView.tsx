@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import UploadSchedule from "./UploadSchedule";
 import WeekGrid from "./WeekGrid";
 import { Button, Card, Spinner } from "./ui";
-import { bestPartialWindows, everyoneFreeWindows, formatRange, freeRangesFor } from "@/lib/schedule";
-import { DAY_NAMES, DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
+import { formatRange, freeRangesFor } from "@/lib/schedule";
+import { DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
 
 interface Owned {
   memberId: string;
@@ -223,7 +223,6 @@ export default function GroupView({ id }: { id: string }) {
         </div>
 
         <div className="space-y-6">
-          <Results group={group} />
           {group.members.length > 0 && (
             <Card>
               <h2 className="mb-4 text-lg font-semibold">Week at a glance</h2>
@@ -295,62 +294,6 @@ function People({
             })}
           </ul>
         </div>
-      )}
-    </Card>
-  );
-}
-
-function Results({ group }: { group: Group }) {
-  const everyone = useMemo(() => everyoneFreeWindows(group), [group]);
-  const partial = useMemo(() => (everyone.length ? [] : bestPartialWindows(group)), [group, everyone.length]);
-  const names = new Map(group.members.map((m) => [m.id, m.name]));
-  const total = group.members.length;
-
-  if (total < 2) {
-    return (
-      <Card className="bg-emerald-50/50">
-        <h2 className="text-lg font-semibold">Times everyone is free</h2>
-        <p className="mt-1 text-sm text-stone-600">
-          {total === 0
-            ? "Add your schedule, then share the link. Free times show up here once two or more people have added theirs."
-            : "Waiting for more people. Share the link in your group chat!"}
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <h2 className="text-lg font-semibold">
-        {everyone.length ? `Times all ${total} of you are free` : "No time works for everyone yet"}
-      </h2>
-      <p className="text-sm text-stone-500">
-        {everyone.length
-          ? `Only showing times with at least ${group.meetingMinutes} minutes free.`
-          : "These times work for the most people:"}
-      </p>
-      <ul className="mt-3 space-y-2">
-        {(everyone.length ? everyone : partial).map((w, i) => {
-          const missing = group.members.filter((m) => !w.freeIds.includes(m.id));
-          return (
-            <li
-              key={i}
-              className={`rounded-xl border px-4 py-3 ${everyone.length ? "border-emerald-200 bg-emerald-50" : "border-stone-200"}`}
-            >
-              <div className="font-semibold">
-                {DAY_NAMES[w.day]} · {formatRange(w.start, w.end)}
-              </div>
-              {missing.length > 0 && (
-                <div className="text-sm text-stone-500">
-                  {w.freeIds.length} of {total} free · {missing.map((m) => names.get(m.id)).join(", ")} can&apos;t make it
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {!everyone.length && partial.length === 0 && (
-        <p className="mt-3 text-sm text-stone-600">Nobody has a long enough gap in the hours you picked.</p>
       )}
     </Card>
   );

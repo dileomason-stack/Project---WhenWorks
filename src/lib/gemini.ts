@@ -11,7 +11,11 @@ List every block of time when this person is BUSY, as a repeating weekly schedul
 Rules:
 - Output one entry per day. A class on "MWF 9:10-10:00" becomes three entries (Monday, Wednesday, Friday).
 - Day letters on college schedules: M = Monday, T or Tu = Tuesday, W = Wednesday, R or Th = Thursday, F = Friday, S or Sa = Saturday, U or Su = Sunday.
-- If the screenshot shows calendar dates, use the weekday of each date.
+- If the day columns show a date (like "SEP 28", "9/28" or "Mon 28"), put that month and day in "date"
+  as "MM-DD" (for example "09-28") for every event in that column. Copy the date exactly as shown; the
+  weekday is worked out from it separately. Leave "date" empty if the columns only show weekday names.
+- "day" is the weekday name if it is written on the column. If only a date is shown, still give your
+  best guess for "day".
 - Calendars often show several calendars layered together (for example a personal calendar and a shared
   one), so events that happen at the same time appear side by side in narrower columns. This is normal.
   List every event separately, even when it overlaps another one, and do not mention overlaps in "notes".
@@ -25,6 +29,7 @@ Rules:
 - Use 24-hour "HH:MM" times.
 - "label" is the event's name as written (for example "ENGL 134" or "Work"). Keep it under 30 characters.
 - Skip the all-day row at the top of calendars: all-day events, birthdays, holidays, tasks and reminders.
+- Skip classes with no meeting time, like ones listed as "asynchronous", "online", "TBA" or "by arrangement".
 - Do not invent blocks. If something is truly unreadable, leave it out and mention it in "notes".
 - "notes" is one short sentence for the person about anything you could not read, or an empty string.
 - If the image is not a schedule at all, return no blocks and say so in "notes".`;
@@ -41,6 +46,7 @@ const RESPONSE_SCHEMA = {
           start: { type: "STRING" },
           end: { type: "STRING" },
           label: { type: "STRING" },
+          date: { type: "STRING" },
         },
         required: ["day", "start", "end"],
       },
@@ -126,16 +132,37 @@ export async function readScheduleScreenshot(
     throw new ScreenshotError("Google's screenshot reader is busy right now. Try again in a moment.", 502);
   }
 
-  const parsed: { blocks?: { day: string; start: string; end: string; label?: string }[]; notes?: string } =
+  const parsed: {
+    blocks?: { day: string; start: string; end: string; label?: string; date?: string }[];
+    notes?: string;
+  } =
     JSON.parse(text);
 
   const blocks = cleanBlocks(
     (parsed.blocks ?? []).map((b) => ({
-      day: DAY_ENUM.indexOf(b.day),
+      day: weekdayFromDate(b.date) ?? DAY_ENUM.indexOf(b.day),
       start: fromHHMM(b.start ?? ""),
       end: fromHHMM(b.end ?? ""),
       label: b.label?.trim() || undefined,
     })),
   );
   return { blocks, notes: parsed.notes?.trim() ?? "" };
+}
+
+// Calendars that label columns only with dates ("SEP 28") leave the AI guessing the weekday, and it
+// often guesses wrong. So when it reports a date, work out the weekday here instead. The year isn't
+// shown, so use whichever year puts the date closest to today. Returns 0 = Monday ... 6 = Sunday.
+export function weekdayFromDate(date: string | undefined, today = new Date()): number | null {
+  const match = /^(\d{1,2})-(\d{1,2})$/.exec(date?.trim() ?? "");
+  if (!match) return null;
+  const month = Number(match[1]) - 1;
+  const day = Number(match[2]);
+  if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+  const year = today.getFullYear();
+  const candidates = [year - 1, year, year + 1].map((y) => new Date(y, month, day));
+  const closest = candidates.reduce((a, b) =>
+    Math.abs(b.getTime() - today.getTime()) < Math.abs(a.getTime() - today.getTime()) ? b : a,
+  );
+  if (closest.getMonth() !== month) return null; // A date like 02-30 that doesn't exist.
+  return (closest.getDay() + 6) % 7;
 }
