@@ -95,7 +95,9 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
                     e.stopPropagation();
                     onSelect(selected ? null : block.uid);
                   }}
-                  className={`absolute overflow-hidden rounded-md px-1.5 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow ${
+                  className={`absolute overflow-hidden rounded-md text-left leading-tight shadow-sm transition-shadow ${
+                    cols >= 3 ? "px-0.5 py-0.5 text-[9px]" : "px-1.5 py-1 text-[11px]"
+                  } ${
                     SHADES[col % SHADES.length]
                   } ${selected ? "z-10 ring-2 ring-stone-900 ring-offset-1" : "hover:brightness-110"}`}
                   style={{
@@ -107,7 +109,7 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onAddAt 
                   title={`${block.label || "Busy"} · ${formatRange(block.start, block.end)}`}
                 >
                   <div className="font-semibold break-words">{block.label || "Busy"}</div>
-                  <div className="break-words opacity-90">{formatRange(block.start, block.end)}</div>
+                  {cols < 3 && <div className="break-words opacity-90">{formatRange(block.start, block.end)}</div>}
                 </button>
               );
             })}

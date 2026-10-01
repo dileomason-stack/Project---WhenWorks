@@ -187,13 +187,19 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
               more hours on screen.
             </li>
             <li>
+              <b className="text-stone-800">Shared calendars:</b> turn off calendars that aren&apos;t yours (like a
+              partner&apos;s or roommate&apos;s) before you take the screenshot, so their events don&apos;t count as your
+              busy times. In Google Calendar, uncheck them in the left sidebar.
+            </li>
+            <li>
               <b className="text-stone-800">On your phone:</b> pinch to zoom out in week view. Still too long? Take one
               screenshot of the morning and one of the afternoon, then upload both.
             </li>
           </ul>
         </details>
         <p className="mt-2 text-xs text-stone-400">
-          Screenshots are read by Google&apos;s Gemini AI and aren&apos;t saved here. Only your busy times are kept.
+          Screenshots are read by Google&apos;s free Gemini AI, which usually takes 15–30 seconds and can take up to a
+          minute when it&apos;s busy. Screenshots aren&apos;t saved here, only your busy times.
         </p>
       </div>
 
@@ -220,6 +226,8 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           ))}
         </div>
       )}
+
+      {reading && <ReadingStatus />}
 
       <div className="flex gap-2">
         {onCancel && (
@@ -301,5 +309,41 @@ function Key({ children }: { children: React.ReactNode }) {
     <kbd className="rounded-md border border-stone-300 bg-white px-1.5 py-0.5 font-sans text-xs font-semibold text-stone-700 shadow-[0_1px_0_#d6d3d1]">
       {children}
     </kbd>
+  );
+}
+
+// Reading can take a while on Google's free tier, so explain what's happening as time passes
+// instead of leaving people staring at a spinner wondering if it broke.
+function ReadingStatus() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [title, detail] =
+    seconds < 12
+      ? ["Reading your schedule…", "This usually takes 15–30 seconds."]
+      : seconds < 35
+        ? ["Still reading, almost there…", "Busy calendars take a little longer to read carefully."]
+        : seconds < 75
+          ? [
+              "Google's free AI is busy right now, so we're retrying.",
+              "This can take up to a minute. It isn't broken, so keep this page open.",
+            ]
+          : ["This is taking longer than usual.", "Hang on a bit more. If nothing happens, you'll get a message to try again."];
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900" role="status">
+      <span className="mt-0.5">
+        <Spinner />
+      </span>
+      <div>
+        <div className="font-semibold">{title}</div>
+        <div className="text-emerald-800/80">
+          {detail} <span className="tabular-nums text-emerald-800/60">({seconds}s)</span>
+        </div>
+      </div>
+    </div>
   );
 }
