@@ -14,7 +14,7 @@ npm run dev                  # open http://localhost:3000
 
 ## Deploying
 
-Hosted on Vercel from this GitHub repo; every push to `main` redeploys. The Vercel project needs:
+Live at https://usewhenworks.vercel.app. Hosted on Vercel from this GitHub repo; every push to `main` redeploys. The Vercel project needs:
 
 - `GEMINI_API_KEY` environment variable
 - A Neon Postgres database connected through the Vercel Marketplace (adds `DATABASE_URL`). Tables are created automatically.
