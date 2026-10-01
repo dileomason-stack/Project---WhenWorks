@@ -181,16 +181,20 @@ function ConfirmForm({
           <ol className="list-decimal space-y-1 pl-5 text-stone-600">
             <li>
               <a
-                href="https://meet.google.com/new"
+                href="https://meet.google.com/"
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-lg bg-stone-900 px-3 py-1.5 font-semibold text-white hover:bg-stone-700"
               >
-                Create a Google Meet ↗
+                Open Google Meet ↗
               </a>{" "}
-              opens a new meeting in another tab (sign in with Google if it asks).
+              (sign in with Google if it asks).
             </li>
-            <li>Copy the meeting link (it looks like meet.google.com/abc-defg-hij) and paste it here:</li>
+            <li>
+              Tap <b>New meeting</b> → <b>Create a meeting for later</b>. On the Meet app it&apos;s <b>New</b> →{" "}
+              <b>Get a meeting link to share</b>. This makes a link without starting a call.
+            </li>
+            <li>Copy the link (it looks like meet.google.com/abc-defg-hij) and paste it here:</li>
           </ol>
           <input
             value={link}
