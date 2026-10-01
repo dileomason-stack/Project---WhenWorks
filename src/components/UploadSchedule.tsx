@@ -171,6 +171,26 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
             }}
           />
         </div>
+        <details className="group mt-2 rounded-xl bg-stone-50 px-4 py-2.5 text-sm">
+          <summary className="cursor-pointer font-medium text-emerald-700 select-none">
+            Calendar doesn&apos;t fit in one screenshot?
+          </summary>
+          <ul className="mt-2 space-y-2 text-stone-600">
+            <li>
+              <b className="text-stone-800">On a laptop:</b> press{" "}
+              <Key>⌘ Cmd</Key> + <Key>−</Key> (Mac) or <Key>Ctrl</Key> + <Key>−</Key> (Windows) a few times to zoom out
+              until your whole day fits. <Key>⌘ Cmd</Key> + <Key>0</Key> or <Key>Ctrl</Key> + <Key>0</Key> sets it back.
+            </li>
+            <li>
+              <b className="text-stone-800">Google Calendar:</b> Settings (gear icon) → Density and color → Compact fits
+              more hours on screen.
+            </li>
+            <li>
+              <b className="text-stone-800">On your phone:</b> pinch to zoom out in week view. Still too long? Take one
+              screenshot of the morning and one of the afternoon, then upload both.
+            </li>
+          </ul>
+        </details>
         <p className="mt-2 text-xs text-stone-400">
           Screenshots are read by Google&apos;s Gemini AI and aren&apos;t saved here. Only your busy times are kept.
         </p>
@@ -321,4 +341,12 @@ function mergeBlocks(existing: BusyBlock[], incoming: BusyBlock[]) {
 
 function sortBlocks(blocks: BusyBlock[]) {
   return [...blocks].sort((a, b) => a.day - b.day || a.start - b.start);
+}
+
+function Key({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded-md border border-stone-300 bg-white px-1.5 py-0.5 font-sans text-xs font-semibold text-stone-700 shadow-[0_1px_0_#d6d3d1]">
+      {children}
+    </kbd>
+  );
 }
