@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildSlots, formatRange, formatTime, SLOT_MINUTES, usefulNearMisses, type NearMiss, type Slot } from "@/lib/schedule";
+import { buildSlots, formatRange, formatTime, SLOT_MINUTES, type Slot } from "@/lib/schedule";
 import { addDays, formatLongDate, parseISODate } from "@/lib/dates";
 import { DAY_SHORT, type Group, type Proposal } from "@/lib/types";
 import { Button } from "./ui";
@@ -15,7 +15,6 @@ interface Props {
 }
 
 const ROW_PX = 11;
-const FLEX_OPTIONS = [0, 15, 30] as const;
 
 export default function WeekGrid({ group, focusId, weekStart, proposals, onSuggest }: Props) {
   const [suggesting, setSuggesting] = useState(false);
@@ -24,9 +23,6 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
     proposals.some((p) => p.date === dateOf(slot.day) && p.start <= slot.start && p.end > slot.start);
   const slots = useMemo(() => buildSlots(group), [group]);
   const [picked, setPicked] = useState<Slot | null>(null);
-  // How late or early someone could be for a time to count as a near miss (0 = don't show near misses).
-  const [flex, setFlex] = useState<(typeof FLEX_OPTIONS)[number]>(0);
-  const misses = useMemo(() => (flex > 0 ? usefulNearMisses(group, flex) : new Map<string, NearMiss[]>()), [group, flex]);
   const total = group.members.length;
   const focus = group.members.find((m) => m.id === focusId) ?? null;
   const names = new Map(group.members.map((m) => [m.id, m.name]));
@@ -34,36 +30,13 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
   function cellClass(slot: Slot) {
     if (focus) return slot.freeIds.includes(focus.id) ? "bg-emerald-500" : "bg-white";
     if (total > 0 && slot.freeIds.length === total) return "bg-emerald-500";
-    if (misses.has(`${slot.day}-${slot.start}`)) return "bg-amber-300";
     return "bg-white";
   }
 
   const rows = slots[0]?.length ?? 0;
-  const pickedMisses = picked ? misses.get(`${picked.day}-${picked.start}`) : undefined;
 
   return (
     <div>
-      {!focus && total > 1 && (
-        <div className="mb-4 rounded-xl bg-stone-50 p-3">
-          <div className="text-sm font-semibold">Show near misses</div>
-          <p className="text-xs text-stone-500">
-            Highlights times that would work if someone arrived late or left early, so you can ask them.
-          </p>
-          <div className="mt-2 inline-flex rounded-lg border border-stone-200 bg-white p-0.5 text-sm">
-            {FLEX_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setFlex(option)}
-                className={`rounded-md px-3 py-1 font-medium ${flex === option ? "bg-stone-900 text-white" : "text-stone-600"}`}
-              >
-                {option === 0 ? "Off" : `Up to ${option} min`}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="flex">
         <div className="w-11 shrink-0" />
         {group.days.map((d) => (
@@ -109,18 +82,6 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
             <div className="font-semibold">
               {formatLongDate(dateOf(picked.day))}, {formatRange(picked.start, picked.start + SLOT_MINUTES)}
             </div>
-            {pickedMisses ? (
-              <ul className="mt-1 space-y-0.5 text-amber-900">
-                {pickedMisses.map((miss) => (
-                  <li key={miss.memberId}>
-                    <b>{names.get(miss.memberId)}</b>{" "}
-                    {miss.kind === "late"
-                      ? `has ${miss.label ?? "something"} until ${formatTime(miss.eventEnd)}, so they'd arrive ${miss.minutes} min late.`
-                      : `has ${miss.label ?? "something"} at ${formatTime(miss.eventStart)}, so they'd leave ${miss.minutes} min early.`}
-                  </li>
-                ))}
-              </ul>
-            ) : (
               <>
                 <div className="text-emerald-700">
                   Free: {picked.freeIds.map((id) => names.get(id)).join(", ") || "nobody"}
@@ -135,7 +96,6 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
                   </div>
                 )}
               </>
-            )}
             {onSuggest && (
               <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-2">
                 <Button
@@ -163,7 +123,6 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
           <Legend
             items={[
               ["bg-emerald-500", "Everyone free"],
-              ...(flex > 0 ? ([["bg-amber-300", "Near miss"]] as [string, string][]) : []),
               ["bg-white border border-stone-300", "Someone's busy"],
             ]}
             hint={onSuggest ? "Tap a time to see who's free or suggest it" : "Tap a time to see who's free"}
