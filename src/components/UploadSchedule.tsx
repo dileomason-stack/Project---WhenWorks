@@ -139,6 +139,13 @@ export default function UploadSchedule({ initialName = "", initialBusy = [], onS
           Screenshot your class schedule or a week view of your calendar. If it doesn&apos;t fit in one, add more
           (like morning and afternoon).
         </p>
+        <p className="mt-2 flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span aria-hidden>⚠️</span>
+          <span>
+            Make sure your screenshot includes <b>the times down the left side</b> and <b>the days across the top</b>.
+            Without them, there&apos;s no way to tell when each event is.
+          </span>
+        </p>
         <div
           onClick={() => fileInput.current?.click()}
           onDragOver={(e) => {
