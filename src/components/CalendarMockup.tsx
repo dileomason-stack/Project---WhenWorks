@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { addDays } from "@/lib/dates";
 import { formatRange, formatTime } from "@/lib/schedule";
 import { DAY_SHORT, type BusyBlock } from "@/lib/types";
@@ -70,6 +70,9 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
   const height = ((rangeEnd - rangeStart) / 60) * HOUR_PX;
 
   const columns = useRef(new Map<number, HTMLDivElement>());
+  const eventEls = useRef(new Map<string, HTMLDivElement>());
+  // Where the selected event is on screen, so its editor can float beside it without being cut off.
+  const [anchor, setAnchor] = useState<{ left: number; right: number; top: number } | null>(null);
   const [drag, setDragState] = useState<Drag | null>(null);
   // The window listeners below read the latest drag from here, so they don't need re-adding on every move.
   const dragRef = useRef<Drag | null>(null);
@@ -83,6 +86,22 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
   useEffect(() => {
     live.current = { onChange, onCreate, onSelect, selectedUid, rangeStart, rangeEnd };
   });
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = selectedUid ? eventEls.current.get(selectedUid) : null;
+      const r = el?.getBoundingClientRect();
+      setAnchor(r ? { left: r.left, right: r.right, top: r.top } : null);
+    };
+    place();
+    // Keep it next to the event while the calendar or page scrolls.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [selectedUid, blocks, drag]);
 
   const minuteAt = (day: number, clientY: number, top = rangeStart) => {
     const col = columns.current.get(day);
@@ -158,12 +177,13 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
     window.addEventListener("pointercancel", onCancel);
   }
 
+  const selected = blocks.find((b) => b.uid === selectedUid) ?? null;
   const creating = drag?.kind === "create" && drag.moved ? drag : null;
   const editing = drag && drag.kind !== "create" && drag.moved;
 
   return (
     <div className={`min-w-max select-none ${editing ? "cursor-grabbing" : ""}`}>
-      <div className="sticky top-0 z-20 flex border-b border-stone-200 bg-white pb-1.5">
+      <div className="sticky -top-3 z-20 -mt-3 flex border-b border-stone-200 bg-white pt-3 pb-1.5">
         <div className="sticky left-0 z-10 w-12 shrink-0 bg-white" />
         {days.map((d) => (
           <div key={d} className={`${DAY_WIDTH} text-center text-xs font-semibold uppercase tracking-wide text-stone-500`}>
@@ -179,7 +199,7 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
             </div>
           ))}
         </div>
-        {days.map((d, di) => (
+        {days.map((d) => (
           <div
             key={d}
             ref={(el) => {
@@ -210,6 +230,10 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
               return (
                 <div
                   key={block.uid}
+                  ref={(el) => {
+                    if (el) eventEls.current.set(block.uid, el);
+                    else eventEls.current.delete(block.uid);
+                  }}
                   role="button"
                   tabIndex={0}
                   aria-label={`${block.label || "Busy"}, ${formatRange(block.start, block.end)}. Press Enter to edit.`}
@@ -266,25 +290,28 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
               </div>
             )}
 
-            {renderEditor &&
-              !drag &&
-              blocks
-                .filter((b) => b.uid === selectedUid && b.day === d)
-                .map((b) => (
-                  <div
-                    key={b.uid}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className={`fixed inset-x-0 bottom-0 z-40 md:absolute md:inset-x-auto md:bottom-auto md:top-[var(--top)] md:w-[22rem] ${
-                      di >= days.length - 2 ? "md:right-full md:mr-2" : "md:left-full md:ml-2"
-                    }`}
-                    style={{ ["--top" as string]: `${((b.start - rangeStart) / 60) * HOUR_PX}px` }}
-                  >
-                    {renderEditor(b)}
-                  </div>
-                ))}
           </div>
         ))}
       </div>
+
+      {renderEditor && selected && anchor && !drag && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="fixed inset-x-0 bottom-0 z-50 md:inset-auto md:top-[var(--y)] md:left-[var(--x)] md:w-[22rem]"
+          style={editorPosition(anchor)}
+        >
+          {renderEditor(selected)}
+        </div>
+      )}
     </div>
   );
+}
+
+// Beside the event on the right if it fits, otherwise on the left, and always inside the window.
+function editorPosition(anchor: { left: number; right: number; top: number }) {
+  const width = 352;
+  const gap = 8;
+  const x = anchor.right + gap + width <= window.innerWidth - 8 ? anchor.right + gap : Math.max(8, anchor.left - gap - width);
+  const y = Math.min(Math.max(8, anchor.top), window.innerHeight - 340);
+  return { ["--x" as string]: `${x}px`, ["--y" as string]: `${y}px` };
 }
