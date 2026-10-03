@@ -309,9 +309,13 @@ export default function CalendarMockup({ blocks, selectedUid, onSelect, onChange
 
 // Beside the event on the right if it fits, otherwise on the left, and always inside the window.
 function editorPosition(anchor: { left: number; right: number; top: number }) {
+  // If the page is scaled with CSS zoom, screen positions are scaled too, so convert them back.
+  const zoom = (document.documentElement as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom || 1;
+  const [left, right, top] = [anchor.left / zoom, anchor.right / zoom, anchor.top / zoom];
+  const [viewW, viewH] = [window.innerWidth / zoom, window.innerHeight / zoom];
   const width = 352;
   const gap = 8;
-  const x = anchor.right + gap + width <= window.innerWidth - 8 ? anchor.right + gap : Math.max(8, anchor.left - gap - width);
-  const y = Math.min(Math.max(8, anchor.top), window.innerHeight - 340);
+  const x = right + gap + width <= viewW - 8 ? right + gap : Math.max(8, left - gap - width);
+  const y = Math.min(Math.max(8, top), viewH - 340);
   return { ["--x" as string]: `${x}px`, ["--y" as string]: `${y}px` };
 }
