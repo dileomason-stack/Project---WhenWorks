@@ -1,3 +1,4 @@
+import { isTimeZone } from "@/lib/dates";
 import { cleanBlocks } from "@/lib/schedule";
 import { deleteMember, getGroup, newId, saveMember, toPublic } from "@/lib/store";
 
@@ -11,6 +12,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/groups/[id]
   if (!name) return Response.json({ error: "Enter a name." }, { status: 400 });
   const busy = cleanBlocks(body?.busy);
   const shareDetails = body?.shareDetails === true;
+  const timeZone = isTimeZone(body?.timeZone) ? body.timeZone : undefined;
 
   const group = await getGroup(id);
   if (!group) return Response.json({ error: "This group link doesn't exist." }, { status: 404 });
@@ -22,10 +24,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/groups/[id]
     if (!existing || existing.editKey !== body.editKey) {
       return Response.json({ error: "You can only edit schedules you added." }, { status: 403 });
     }
-    member = { ...existing, name, busy, shareDetails, updatedAt: now };
+    member = { ...existing, name, busy, shareDetails, timeZone: timeZone ?? existing.timeZone, updatedAt: now };
   } else {
     if (group.members.length >= 50) return Response.json({ error: "This group is full." }, { status: 403 });
-    member = { id: newId(), editKey: newId(12), name, busy, shareDetails, updatedAt: now, addedAt: now };
+    member = { id: newId(), editKey: newId(12), name, busy, shareDetails, timeZone, updatedAt: now, addedAt: now };
   }
 
   await saveMember(id, member);

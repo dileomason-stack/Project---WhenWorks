@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type EditableBlock } from "./CalendarMockup";
 import ReviewSchedule, { newUid } from "./ReviewSchedule";
 import { Button, Card, Spinner } from "./ui";
+import { browserTimeZone } from "@/lib/dates";
 import type { BusyBlock } from "@/lib/types";
 
 interface Props {
@@ -12,7 +13,8 @@ interface Props {
   initialName?: string;
   initialBusy?: BusyBlock[];
   initialShareDetails?: boolean;
-  onSave: (name: string, busy: BusyBlock[], shareDetails: boolean) => Promise<void>;
+  initialTimeZone?: string;
+  onSave: (name: string, busy: BusyBlock[], shareDetails: boolean, timeZone: string) => Promise<void>;
   onCancel?: () => void;
 }
 
@@ -59,10 +61,13 @@ export default function UploadSchedule({
   initialName = "",
   initialBusy = [],
   initialShareDetails = false,
+  initialTimeZone,
   onSave,
   onCancel,
 }: Props) {
   const [shareDetails, setShareDetails] = useState(initialShareDetails);
+  // The time zone of the schedule in the screenshot; starts as this device's zone.
+  const [timeZone, setTimeZone] = useState(() => initialTimeZone ?? browserTimeZone());
   const [name, setName] = useState(initialName);
   const [blocks, setBlocks] = useState<EditableBlock[]>(() => initialBusy.map((b) => ({ ...b, uid: newUid() })));
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
@@ -131,6 +136,7 @@ export default function UploadSchedule({
         name.trim(),
         sortBlocks(blocks.map(({ day, start, end, label, date }) => ({ day, start, end, label, ...(date ? { date } : {}) }))),
         shareDetails,
+        timeZone,
       );
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't save. Try again.");
@@ -310,6 +316,8 @@ export default function UploadSchedule({
           name={name}
           shareDetails={shareDetails}
           setShareDetails={setShareDetails}
+          timeZone={timeZone}
+          setTimeZone={setTimeZone}
           setName={setName}
           saving={saving}
           error={error}

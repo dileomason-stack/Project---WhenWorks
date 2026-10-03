@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { layoutDay } from "./CalendarMockup";
 import { buildSlots, formatRange, formatTime, SLOT_MINUTES } from "@/lib/schedule";
-import { addDays, parseISODate } from "@/lib/dates";
+import { addDays, convertTime, DEFAULT_TIME_ZONE, parseISODate, timeZoneCity } from "@/lib/dates";
 import { DAY_NAMES, DAY_SHORT, type BusyBlock, type Group } from "@/lib/types";
 
 // One color per person, in a fixed order checked for colorblind-safe contrast between neighbors.
@@ -16,7 +16,9 @@ const HOUR_PX = 44;
 
 type Event = BusyBlock & { memberId: string; key: string };
 
-export default function OverlapView({ group, weekStart }: { group: Group; weekStart: string }) {
+export default function OverlapView({ group, weekStart, viewerZone }: { group: Group; weekStart: string; viewerZone: string }) {
+  const groupZone = group.timeZone ?? DEFAULT_TIME_ZONE;
+  const twoZones = viewerZone !== groupZone;
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Event | null>(null);
   const colors = new Map(group.members.map((m, i) => [m.id, colorForIndex(i)]));
@@ -84,8 +86,13 @@ export default function OverlapView({ group, weekStart }: { group: Group; weekSt
 
       <div className="overflow-x-auto">
         <div className="min-w-max">
-          <div className="flex border-b border-stone-200 pb-1">
-            <div className="w-11 shrink-0" />
+          <div className="flex items-end border-b border-stone-200 pb-1">
+            {twoZones && (
+              <div className="w-11 shrink-0 pr-1.5 text-right text-[9px] font-semibold leading-tight text-sky-700">{timeZoneCity(viewerZone)}</div>
+            )}
+            <div className={`w-11 shrink-0 pr-1.5 text-right text-[9px] font-semibold leading-tight text-stone-500 ${twoZones ? "" : "invisible"}`}>
+              {timeZoneCity(groupZone)}
+            </div>
             {group.days.map((d) => (
               <div key={d} className="min-w-[72px] flex-1 text-center text-xs font-semibold text-stone-600">
                 {DAY_SHORT[d]}{" "}
@@ -94,6 +101,15 @@ export default function OverlapView({ group, weekStart }: { group: Group; weekSt
             ))}
           </div>
           <div className="flex">
+            {twoZones && (
+              <div className="relative w-11 shrink-0" style={{ height }}>
+                {hours.map((t, i) => (
+                  <div key={t} className="absolute right-1.5 -translate-y-1/2 text-[10px] text-sky-700/70" style={{ top: i * HOUR_PX }}>
+                    {i === 0 ? "" : formatTime(convertTime(weekStart, t, groupZone, viewerZone).minutes)}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="relative w-11 shrink-0" style={{ height }}>
               {hours.map((t, i) => (
                 <div key={t} className="absolute right-1.5 -translate-y-1/2 text-[10px] text-stone-400" style={{ top: i * HOUR_PX }}>

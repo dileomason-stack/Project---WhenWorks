@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildSlots, formatRange, formatTime, SLOT_MINUTES, type Slot } from "@/lib/schedule";
-import { addDays, formatLongDate, parseISODate } from "@/lib/dates";
+import { buildSlots, describeInZone, formatRange, formatTime, SLOT_MINUTES, type Slot } from "@/lib/schedule";
+import { addDays, convertTime, DEFAULT_TIME_ZONE, formatLongDate, parseISODate, timeZoneCity } from "@/lib/dates";
 import { DAY_SHORT, type Group, type Proposal } from "@/lib/types";
 import { Button } from "./ui";
 
@@ -12,11 +12,15 @@ interface Props {
   weekStart: string; // The Monday of the week shown.
   proposals: Proposal[];
   onSuggest?: (date: string, start: number, end: number) => Promise<void>;
+  // The viewer's time zone. When it differs from the group's, a second time column shows their own time.
+  viewerZone: string;
 }
 
 const ROW_PX = 11;
 
-export default function WeekGrid({ group, focusId, weekStart, proposals, onSuggest }: Props) {
+export default function WeekGrid({ group, focusId, weekStart, proposals, onSuggest, viewerZone }: Props) {
+  const groupZone = group.timeZone ?? DEFAULT_TIME_ZONE;
+  const twoZones = viewerZone !== groupZone;
   const [suggesting, setSuggesting] = useState(false);
   const dateOf = (day: number) => addDays(weekStart, day);
   const isProposed = (slot: Slot) =>
@@ -49,8 +53,15 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
 
   return (
     <div>
-      <div className="flex">
-        <div className="w-11 shrink-0" />
+      <div className="flex items-end">
+        {twoZones && (
+          <div className="w-11 shrink-0 pb-1 pr-1.5 text-right text-[9px] font-semibold leading-tight text-sky-700">
+            {timeZoneCity(viewerZone)}
+          </div>
+        )}
+        <div className={`w-11 shrink-0 pb-1 pr-1.5 text-right text-[9px] font-semibold leading-tight text-stone-500 ${twoZones ? "" : "invisible"}`}>
+          {timeZoneCity(groupZone)}
+        </div>
         {group.days.map((d) => (
           <div key={d} className="flex-1 pb-1 text-center text-xs font-semibold text-stone-600">
             {DAY_SHORT[d]} <span className="font-normal text-stone-400">{parseISODate(dateOf(d)).getDate()}</span>
@@ -58,6 +69,17 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
         ))}
       </div>
       <div className="flex">
+        {twoZones && (
+          <div className="relative w-11 shrink-0" style={{ height: rows * ROW_PX }}>
+            {slots[0]?.map((s, i) =>
+              s.start % 60 === 0 ? (
+                <div key={i} className="absolute right-1.5 -translate-y-1/2 text-[10px] text-sky-700/70" style={{ top: i * ROW_PX }}>
+                  {formatTime(convertTime(weekStart, s.start, groupZone, viewerZone).minutes)}
+                </div>
+              ) : null,
+            )}
+          </div>
+        )}
         <div className="relative w-11 shrink-0" style={{ height: rows * ROW_PX }}>
           {slots[0]?.map((s, i) =>
             s.start % 60 === 0 ? (
@@ -102,7 +124,13 @@ export default function WeekGrid({ group, focusId, weekStart, proposals, onSugge
           <div className="rounded-xl bg-stone-50 px-3 py-2">
             <div className="font-semibold">
               {formatLongDate(dateOf(picked.day))}, {formatRange(picked.start, picked.end)}
+              {twoZones && <span className="font-normal text-stone-500"> {timeZoneCity(groupZone)} time</span>}
             </div>
+            {twoZones && (
+              <div className="text-sky-800">
+                {describeInZone(dateOf(picked.day), picked.start, picked.end, groupZone, viewerZone)} in {timeZoneCity(viewerZone)}
+              </div>
+            )}
               <>
                 <div className="text-emerald-700">
                   Free: {picked.freeIds.map((id) => names.get(id)).join(", ") || "nobody"}

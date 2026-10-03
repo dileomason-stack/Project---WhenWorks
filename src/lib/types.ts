@@ -41,6 +41,8 @@ export interface Member {
   name: string;
   busy: BusyBlock[];
   updatedAt: string;
+  // The time zone this person's schedule is in. Without it, the schedule is in the group's time zone.
+  timeZone?: string;
   // Whether the group can see event names. Off by default: others only see when someone is busy.
   shareDetails?: boolean;
 }

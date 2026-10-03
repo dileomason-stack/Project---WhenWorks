@@ -8,5 +8,5 @@ export async function POST(request: Request, ctx: RouteContext<"/api/groups/[id]
   const group = await getGroup(id);
   const member = group?.members.find((m) => m.id === body?.memberId && m.editKey === body?.editKey);
   if (!member) return Response.json({ error: "You can only open schedules you added." }, { status: 403 });
-  return Response.json({ busy: member.busy, shareDetails: !!member.shareDetails });
+  return Response.json({ busy: member.busy, shareDetails: !!member.shareDetails, timeZone: member.timeZone ?? null });
 }

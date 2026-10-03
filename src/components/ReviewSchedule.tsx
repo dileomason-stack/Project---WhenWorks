@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import CalendarMockup, { type EditableBlock } from "./CalendarMockup";
 import { Button, Spinner } from "./ui";
-import { addDays, isISODate, mondayOf, toISODate, weekdayOf } from "@/lib/dates";
+import { addDays, allTimeZones, isISODate, mondayOf, timeZoneLabel, toISODate, weekdayOf } from "@/lib/dates";
 import { fromHHMM, toHHMM } from "@/lib/schedule";
 import { DAY_NAMES } from "@/lib/types";
 
@@ -15,6 +15,8 @@ interface Props {
   forOther: boolean;
   shareDetails: boolean;
   setShareDetails: (value: boolean) => void;
+  timeZone: string;
+  setTimeZone: (zone: string) => void;
   name: string;
   setName: (name: string) => void;
   saving: boolean;
@@ -35,6 +37,8 @@ export default function ReviewSchedule({
   forOther,
   shareDetails,
   setShareDetails,
+  timeZone,
+  setTimeZone,
   name,
   setName,
   saving,
@@ -167,6 +171,21 @@ export default function ReviewSchedule({
         <Button variant="secondary" onClick={onAddScreenshot}>
           + Add another screenshot
         </Button>
+        <label className="flex items-center gap-2 text-sm text-stone-600">
+          <span className="whitespace-nowrap">Times are in</span>
+          <select
+            value={timeZone}
+            onChange={(e) => setTimeZone(e.target.value)}
+            className="max-w-48 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
+            aria-label="Time zone of this schedule"
+          >
+            {zoneOptions(timeZone).map(({ zone, label }) => (
+              <option key={zone} value={zone}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
           <input
             type="checkbox"
@@ -299,4 +318,11 @@ function TimeInput({ value, onChange, label }: { value: number; onChange: (v: nu
 // The date of a weekday in the current week, used when someone switches an event to "Just once".
 function dateInThisWeek(day: number) {
   return addDays(mondayOf(toISODate(new Date())), day);
+}
+
+// Every time zone as "City (GMT+1)", with the current one included even if the browser doesn't list it.
+function zoneOptions(current: string) {
+  const list = allTimeZones();
+  if (!list.includes(current)) list.unshift(current);
+  return list.map((zone) => ({ zone, label: timeZoneLabel(zone) })).sort((a, b) => a.label.localeCompare(b.label));
 }

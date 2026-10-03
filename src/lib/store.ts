@@ -19,13 +19,14 @@ export function toPublic(group: StoredGroup): Group {
   void _adminKey;
   return {
     ...rest,
-    members: group.members.map(({ id, name, busy, updatedAt, shareDetails }) => ({
+    members: group.members.map(({ id, name, busy, updatedAt, shareDetails, timeZone }) => ({
       id,
       name,
       // Event names stay private unless the person chose to share them.
       busy: shareDetails ? busy : busy.map(({ label: _label, ...b }) => (void _label, b)),
       updatedAt,
       shareDetails: !!shareDetails,
+      ...(timeZone ? { timeZone } : {}),
     })),
   };
 }

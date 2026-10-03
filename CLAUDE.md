@@ -32,6 +32,10 @@ highlights when everyone is free. There is deliberately no paint-your-availabili
 - Screenshot reading is capped at 10 per hour per person (hashed IP, `screenshot_reads` table) so nobody can
   burn through the free Gemini allowance.
 - The creator can change group settings (`settings` action); the form fields are shared in `GroupFields`.
+- Time zones: the group has a home `timeZone` (creator's choice) that the meeting hours, proposals and invites
+  use; each schedule stores the `timeZone` it was entered in. `groupForWeek` converts other zones into the
+  group's for that specific week (DST-safe, splitting events that cross midnight). Viewers in another zone get
+  a second time column and "… in <their city>" next to proposals and the meeting.
 - The home page lists "Your groups" from localStorage (`src/lib/recent.ts`).
 
 Possible next: Google Calendar / Apple .ics import as a backup to screenshots.

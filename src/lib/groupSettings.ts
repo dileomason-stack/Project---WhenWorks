@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ZONE, isTimeZone } from "./dates";
 import type { MeetingMode } from "./types";
 
 // The settings someone picks when making a group, and can change later if they made it.
@@ -9,6 +10,8 @@ export interface GroupSettings {
   dayStart: number;
   dayEnd: number;
   expectedCount?: number;
+  // The group's home time zone: the meeting hours, suggested times and invites are all in it.
+  timeZone: string;
 }
 
 export const DEFAULT_SETTINGS: GroupSettings = {
@@ -18,6 +21,7 @@ export const DEFAULT_SETTINGS: GroupSettings = {
   days: [0, 1, 2, 3, 4],
   dayStart: 8 * 60,
   dayEnd: 22 * 60,
+  timeZone: DEFAULT_TIME_ZONE,
 };
 
 export const MEETING_LENGTHS = [30, 45, 60, 90, 120];
@@ -43,6 +47,7 @@ export function parseGroupSettings(body: unknown): { settings: GroupSettings } |
       days,
       dayStart,
       dayEnd,
+      timeZone: isTimeZone(b.timeZone) ? b.timeZone : DEFAULT_TIME_ZONE,
       ...(Number.isInteger(count) && count >= 2 && count <= 30 ? { expectedCount: count } : {}),
     },
   };

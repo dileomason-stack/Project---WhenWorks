@@ -62,3 +62,70 @@ export function zonedTimeToUtc(iso: string, minutes: number, timeZone: string): 
   const first = guess - offsetAt(guess);
   return new Date(guess - offsetAt(first));
 }
+
+// The date and minutes-after-midnight that a moment falls on in a time zone.
+export function zonedParts(moment: Date, timeZone: string): { iso: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(moment);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
+  return { iso: `${get("year")}-${get("month")}-${get("day")}`, minutes: Number(get("hour")) * 60 + Number(get("minute")) };
+}
+
+export const DEFAULT_TIME_ZONE = "America/Los_Angeles";
+
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIME_ZONE;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+export function isTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 64 || !value) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// "Europe/London" → "London", "America/Los_Angeles" → "Los Angeles".
+export function timeZoneCity(timeZone: string): string {
+  return (timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ");
+}
+
+// "London (GMT+1)", using the offset in effect on the given date.
+export function timeZoneLabel(timeZone: string, on: Date = new Date()): string {
+  try {
+    const offset = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" })
+      .formatToParts(on)
+      .find((p) => p.type === "timeZoneName")?.value;
+    return `${timeZoneCity(timeZone)}${offset ? ` (${offset})` : ""}`;
+  } catch {
+    return timeZoneCity(timeZone);
+  }
+}
+
+// Every time zone the browser knows, for pickers.
+export function allTimeZones(): string[] {
+  try {
+    return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone");
+  } catch {
+    return [DEFAULT_TIME_ZONE, "America/Denver", "America/Chicago", "America/New_York", "Europe/London", "Europe/Paris", "Asia/Tokyo"];
+  }
+}
+
+// What a time on a date in one zone is in another, e.g. 5pm London on Oct 6 → 9am Los Angeles on Oct 6.
+export function convertTime(iso: string, minutes: number, from: string, to: string): { iso: string; minutes: number } {
+  if (from === to) return { iso, minutes };
+  return zonedParts(zonedTimeToUtc(iso, minutes, from), to);
+}

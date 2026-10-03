@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Button, Card, Spinner } from "./ui";
-import { formatLongDate, zonedTimeToUtc } from "@/lib/dates";
-import { formatRange } from "@/lib/schedule";
+import { DEFAULT_TIME_ZONE, formatLongDate, timeZoneCity, zonedTimeToUtc } from "@/lib/dates";
+import { describeInZone, formatRange } from "@/lib/schedule";
 import type { Group, Proposal, Vote } from "@/lib/types";
 
 export interface Owner {
@@ -16,11 +16,12 @@ interface Props {
   owners: Owner[]; // Schedules this browser added (yours first), which it can vote for.
   isAdmin: boolean;
   plan: (action: string, payload?: Record<string, unknown>) => Promise<boolean>;
+  viewerZone: string;
 }
 
 // Suggested times, votes, and the confirmed meeting with its calendar buttons.
-export default function PlanCard({ group, owners, isAdmin, plan }: Props) {
-  if (group.meeting) return <MeetingCard group={group} isAdmin={isAdmin} plan={plan} />;
+export default function PlanCard({ group, owners, isAdmin, plan, viewerZone }: Props) {
+  if (group.meeting) return <MeetingCard group={group} isAdmin={isAdmin} plan={plan} viewerZone={viewerZone} />;
 
   return (
     <Card>
@@ -32,7 +33,7 @@ export default function PlanCard({ group, owners, isAdmin, plan }: Props) {
       ) : (
         <ul className="mt-3 space-y-3">
           {group.proposals.map((p) => (
-            <ProposalRow key={p.id} group={group} proposal={p} owners={owners} isAdmin={isAdmin} plan={plan} />
+            <ProposalRow key={p.id} group={group} proposal={p} owners={owners} isAdmin={isAdmin} plan={plan} viewerZone={viewerZone} />
           ))}
         </ul>
       )}
@@ -46,12 +47,14 @@ function ProposalRow({
   owners,
   isAdmin,
   plan,
+  viewerZone,
 }: {
   group: Group;
   proposal: Proposal;
   owners: Owner[];
   isAdmin: boolean;
   plan: Props["plan"];
+  viewerZone: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -71,8 +74,11 @@ function ProposalRow({
   return (
     <li className={`rounded-xl border p-3 ${everyoneYes ? "border-emerald-300 bg-emerald-50" : "border-stone-200"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="font-semibold">
-          {formatLongDate(proposal.date)} · {formatRange(proposal.start, proposal.end)}
+        <div>
+          <div className="font-semibold">
+            {formatLongDate(proposal.date)} · {formatRange(proposal.start, proposal.end)}
+          </div>
+          <OtherZone group={group} viewerZone={viewerZone} date={proposal.date} start={proposal.start} end={proposal.end} />
         </div>
         <div className="text-xs text-stone-500">
           {yes.length} yes{no.length > 0 && ` · ${no.length} no`}
@@ -235,10 +241,20 @@ function ConfirmForm({
   );
 }
 
-function MeetingCard({ group, isAdmin, plan }: { group: Group; isAdmin: boolean; plan: Props["plan"] }) {
+function MeetingCard({
+  group,
+  isAdmin,
+  plan,
+  viewerZone,
+}: {
+  group: Group;
+  isAdmin: boolean;
+  plan: Props["plan"];
+  viewerZone: string;
+}) {
   const meeting = group.meeting!;
   const [copied, setCopied] = useState(false);
-  const tz = group.timeZone ?? "America/Los_Angeles";
+  const tz = group.timeZone ?? DEFAULT_TIME_ZONE;
   const when = `${formatLongDate(meeting.date)}, ${formatRange(meeting.start, meeting.end)}`;
   const groupUrl = typeof window === "undefined" ? "" : `${window.location.origin}/g/${group.id}`;
 
@@ -254,7 +270,7 @@ function MeetingCard({ group, isAdmin, plan }: { group: Group; isAdmin: boolean;
     }).toString();
 
   const message = [
-    `📅 ${group.name}: ${when}`,
+    `📅 ${group.name}: ${when} (${timeZoneCity(tz)} time)`,
     meeting.location ? `📍 ${meeting.location}` : "",
     meeting.link ? `💻 ${meeting.link}` : "",
     `Add it to your calendar: ${groupUrl}`,
@@ -272,6 +288,7 @@ function MeetingCard({ group, isAdmin, plan }: { group: Group; isAdmin: boolean;
     <Card className="border-emerald-300 bg-emerald-50">
       <div className="text-sm font-semibold text-emerald-800">Meeting set ✓</div>
       <div className="mt-1 text-xl font-bold">{when}</div>
+      <OtherZone group={group} viewerZone={viewerZone} date={meeting.date} start={meeting.start} end={meeting.end} />
       {meeting.location && <div className="mt-1 text-stone-700">📍 {meeting.location}</div>}
       {meeting.link && (
         <a href={meeting.link} target="_blank" rel="noreferrer" className="mt-1 block truncate font-medium text-emerald-800 underline">
@@ -308,5 +325,31 @@ function MeetingCard({ group, isAdmin, plan }: { group: Group; isAdmin: boolean;
         </button>
       )}
     </Card>
+  );
+}
+
+// For someone in a different time zone than the group: the group's zone, and the same time in theirs.
+function OtherZone({
+  group,
+  viewerZone,
+  date,
+  start,
+  end,
+}: {
+  group: Group;
+  viewerZone: string;
+  date: string;
+  start: number;
+  end: number;
+}) {
+  const groupZone = group.timeZone ?? DEFAULT_TIME_ZONE;
+  if (groupZone === viewerZone) return null;
+  return (
+    <div className="text-sm text-stone-500">
+      {timeZoneCity(groupZone)} time ·{" "}
+      <span className="text-sky-800">
+        {describeInZone(date, start, end, groupZone, viewerZone)} in {timeZoneCity(viewerZone)}
+      </span>
+    </div>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { allTimeZones, timeZoneLabel } from "@/lib/dates";
 import type { GroupSettings } from "@/lib/groupSettings";
 import { formatTime } from "@/lib/schedule";
 import { DAY_SHORT } from "@/lib/types";
@@ -17,6 +19,12 @@ export default function GroupFields({
   onChange: (patch: Partial<GroupSettings>) => void;
   autoFocus?: boolean;
 }) {
+  const zones = useMemo(() => {
+    const list = allTimeZones();
+    if (!list.includes(value.timeZone)) list.unshift(value.timeZone);
+    return list.map((z) => ({ zone: z, label: timeZoneLabel(z) })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [value.timeZone]);
+
   const toggleDay = (d: number) =>
     onChange({ days: value.days.includes(d) ? value.days.filter((x) => x !== d) : [...value.days, d].sort() });
 
@@ -107,6 +115,20 @@ export default function GroupFields({
           ))}
         </div>
       </div>
+
+      <label className="block">
+        <span className="text-sm font-semibold">Group time zone</span>
+        <select value={value.timeZone} onChange={(e) => onChange({ timeZone: e.target.value })} className={fieldClass}>
+          {zones.map(({ zone, label }) => (
+            <option key={zone} value={zone}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-xs text-stone-500">
+          The hours below, suggested times and invites use this time zone. People elsewhere still see their own time too.
+        </span>
+      </label>
 
       <div>
         <span className="text-sm font-semibold">Between</span>

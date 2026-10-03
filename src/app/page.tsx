@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { browserTimeZone } from "@/lib/dates";
 import { forgetGroup, listRecent, type RecentGroup } from "@/lib/recent";
 import { Button, Card, Spinner } from "@/components/ui";
 import GroupFields from "@/components/GroupFields";
@@ -16,6 +17,8 @@ export default function Home() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the saved list only exists in the browser
     setRecent(listRecent());
+    // Start with this device's time zone; the creator can change it.
+    setSettings((prev) => ({ ...prev, timeZone: browserTimeZone() }));
   }, []);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -28,7 +31,7 @@ export default function Home() {
       const res = await fetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...settings, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify(settings),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

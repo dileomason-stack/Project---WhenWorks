@@ -9,7 +9,7 @@ import OverlapView from "./OverlapView";
 import PlanCard from "./PlanCard";
 import WeekGrid from "./WeekGrid";
 import { Button, Card, Spinner } from "./ui";
-import { addDays, formatShortDate, mondayOf, toISODate } from "@/lib/dates";
+import { addDays, browserTimeZone, DEFAULT_TIME_ZONE, formatShortDate, mondayOf, timeZoneCity, toISODate } from "@/lib/dates";
 import type { GroupSettings } from "@/lib/groupSettings";
 import { forgetGroup, rememberGroup } from "@/lib/recent";
 import { formatRange, freeRangesFor, groupForWeek } from "@/lib/schedule";
@@ -69,7 +69,9 @@ export default function GroupView({ id }: { id: string }) {
   const [settingsDraft, setSettingsDraft] = useState<GroupSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   // Your own copy of a schedule you're editing, with its private event names.
-  const [fullSchedule, setFullSchedule] = useState<{ busy: BusyBlock[]; shareDetails: boolean } | "unavailable" | null>(
+  const [fullSchedule, setFullSchedule] = useState<
+    { busy: BusyBlock[]; shareDetails: boolean; timeZone?: string | null } | "unavailable" | null
+  >(
     null,
   );
   // Which week the calendar shows: 0 = this week, 1 = next week, and so on.
@@ -133,13 +135,14 @@ export default function GroupView({ id }: { id: string }) {
     name: string,
     busy: BusyBlock[],
     shareDetails: boolean,
+    timeZone: string,
     existing: Owned | null,
     forOther: boolean,
   ) {
     const res = await fetch(`/api/groups/${id}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, busy, shareDetails, memberId: existing?.memberId, editKey: existing?.editKey }),
+      body: JSON.stringify({ name, busy, shareDetails, timeZone, memberId: existing?.memberId, editKey: existing?.editKey }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -247,6 +250,8 @@ export default function GroupView({ id }: { id: string }) {
   const isEditingSelf = !!myMember && editing === myMember.id;
   const weekStart = addDays(mondayOf(toISODate(new Date())), 7 * weekOffset);
   const weekGroup = groupForWeek(group, weekStart);
+  // This page only renders in the browser (after the group loads), so the device's time zone is available.
+  const viewerZone = browserTimeZone();
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-8">
@@ -258,7 +263,7 @@ export default function GroupView({ id }: { id: string }) {
           <h1 className="mt-1 text-3xl font-bold tracking-tight">{group.name}</h1>
           <p className="mt-1 text-sm text-stone-500">
             {group.mode === "online" ? "Online call" : "In person"} · {group.meetingMinutes} min ·{" "}
-            {group.days.map((d) => DAY_SHORT[d]).join(", ")}
+            {group.days.map((d) => DAY_SHORT[d]).join(", ")} · {timeZoneCity(group.timeZone ?? DEFAULT_TIME_ZONE)} time
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -277,6 +282,7 @@ export default function GroupView({ id }: { id: string }) {
                         dayStart: group.dayStart,
                         dayEnd: group.dayEnd,
                         expectedCount: group.expectedCount,
+                        timeZone: group.timeZone ?? DEFAULT_TIME_ZONE,
                       },
                 )
               }
@@ -330,7 +336,7 @@ export default function GroupView({ id }: { id: string }) {
           {!myMember ? (
             <div>
               <h2 className="mb-3 text-lg font-semibold">Add your schedule</h2>
-              <UploadSchedule key="self" onSave={(name, busy, share) => save(name, busy, share, null, false)} />
+              <UploadSchedule key="self" onSave={(name, busy, share, zone) => save(name, busy, share, zone, null, false)} />
             </div>
           ) : editing ? (
             <div>
@@ -357,7 +363,11 @@ export default function GroupView({ id }: { id: string }) {
                   initialName={editingMember?.name}
                   initialBusy={fullSchedule === "unavailable" ? editingMember?.busy : fullSchedule?.busy}
                   initialShareDetails={fullSchedule === "unavailable" ? editingMember?.shareDetails : fullSchedule?.shareDetails}
-                  onSave={(name, busy, share) => save(name, busy, share, editingOwned, !isEditingSelf)}
+                  initialTimeZone={
+                    (fullSchedule === "unavailable" ? editingMember?.timeZone : fullSchedule?.timeZone) ??
+                    (editingMember ? group.timeZone : undefined)
+                  }
+                  onSave={(name, busy, share, zone) => save(name, busy, share, zone, editingOwned, !isEditingSelf)}
                   onCancel={() => setEditing(null)}
                 />
               )}
@@ -429,7 +439,7 @@ export default function GroupView({ id }: { id: string }) {
 
         <div className="space-y-6">
           {(group.members.length > 1 || group.proposals.length > 0 || group.meeting) && (
-            <PlanCard group={group} owners={owned} isAdmin={!!saved.adminKey} plan={plan} />
+            <PlanCard group={group} owners={owned} isAdmin={!!saved.adminKey} plan={plan} viewerZone={viewerZone} />
           )}
           {group.members.length > 0 && (
             <Card>
@@ -480,7 +490,7 @@ export default function GroupView({ id }: { id: string }) {
                 </button>
               </div>
               {view === "overlap" && group.members.length > 1 ? (
-                <OverlapView group={weekGroup} weekStart={weekStart} />
+                <OverlapView group={weekGroup} weekStart={weekStart} viewerZone={viewerZone} />
               ) : (
                 <WeekGrid
                   group={weekGroup}
@@ -488,6 +498,7 @@ export default function GroupView({ id }: { id: string }) {
                   weekStart={weekStart}
                   proposals={group.proposals}
                   onSuggest={group.meeting ? undefined : suggest}
+                  viewerZone={viewerZone}
                 />
               )}
             </Card>

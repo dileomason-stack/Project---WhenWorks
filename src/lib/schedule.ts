@@ -1,4 +1,4 @@
-import { addDays, isISODate, weekdayOf } from "./dates";
+import { addDays, convertTime, DEFAULT_TIME_ZONE, formatShortDate, isISODate, timeZoneCity, weekdayOf, zonedParts, zonedTimeToUtc } from "./dates";
 import type { BusyBlock, Group } from "./types";
 
 export const SLOT_MINUTES = 15;
@@ -86,15 +86,61 @@ export function cleanBlocks(input: unknown): BusyBlock[] {
   return blocks.sort((a, b) => a.day - b.day || a.start - b.start);
 }
 
-// The group as it looks in one week (given by its Monday): weekly events always count, one-time
-// events only count in their own week.
+// The group as it looks in one week (given by its Monday, in the group's time zone). Weekly events always
+// count and one-time events only count in their own week. Schedules from other time zones are converted
+// into the group's time zone for that specific week, so daylight saving changes line up correctly.
 export function groupForWeek(group: Group, weekStart: string): Group {
   const weekEnd = addDays(weekStart, 6);
+  const groupZone = group.timeZone ?? DEFAULT_TIME_ZONE;
   return {
     ...group,
-    members: group.members.map((m) => ({
-      ...m,
-      busy: m.busy.filter((b) => !b.date || (b.date >= weekStart && b.date <= weekEnd)),
-    })),
+    members: group.members.map((m) => {
+      const zone = m.timeZone ?? groupZone;
+      const busy =
+        zone === groupZone
+          ? m.busy.filter((b) => !b.date || (b.date >= weekStart && b.date <= weekEnd))
+          : convertBusy(m.busy, zone, groupZone, weekStart);
+      return { ...m, busy };
+    }),
   };
 }
+
+// Converts someone's busy times from their time zone into another for one week. An event that crosses
+// midnight after converting (like 9pm–11pm Los Angeles = 5am–7am London the next day) is split in two.
+function convertBusy(busy: BusyBlock[], from: string, to: string, weekStart: string): BusyBlock[] {
+  const weekEnd = addDays(weekStart, 6);
+  const out: BusyBlock[] = [];
+  // Their local dates can be a day either side of the week once converted, so look one day further out.
+  const dates = Array.from({ length: 9 }, (_, i) => addDays(weekStart, i - 1));
+  for (const b of busy) {
+    const occurrences = b.date ? [b.date] : dates.filter((iso) => weekdayOf(iso) === b.day);
+    for (const iso of occurrences) {
+      const start = zonedParts(zonedTimeToUtc(iso, b.start, from), to);
+      const end = zonedParts(zonedTimeToUtc(iso, b.end, from), to);
+      const pieces =
+        start.iso === end.iso
+          ? [{ iso: start.iso, start: start.minutes, end: end.minutes }]
+          : [
+              { iso: start.iso, start: start.minutes, end: 24 * 60 },
+              { iso: end.iso, start: 0, end: end.minutes },
+            ];
+      for (const p of pieces) {
+        if (p.iso < weekStart || p.iso > weekEnd || p.end <= p.start) continue;
+        out.push({ day: weekdayOf(p.iso), start: p.start, end: p.end, label: b.label, ...(b.date ? { date: p.iso } : {}) });
+      }
+    }
+  }
+  return out.sort((a, b) => a.day - b.day || a.start - b.start);
+}
+
+// A time range on a date, described in another time zone: "9am – 10am" or, if the date changes,
+// "11pm – 12am (Mon, Oct 5)".
+export function describeInZone(iso: string, start: number, end: number, from: string, to: string): string {
+  const a = convertTime(iso, start, from, to);
+  const range = formatRange(a.minutes, a.minutes + (end - start));
+  if (a.iso === iso) return range;
+  const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][weekdayOf(a.iso)];
+  return `${range} (${weekday}, ${formatShortDate(a.iso)})`;
+}
+
+export const zoneCity = (zone: string | undefined) => timeZoneCity(zone ?? DEFAULT_TIME_ZONE);
