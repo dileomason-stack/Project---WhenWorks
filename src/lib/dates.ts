@@ -99,8 +99,18 @@ export function isTimeZone(value: unknown): value is string {
 }
 
 // "Europe/London" → "London", "America/Los_Angeles" → "Los Angeles".
+// Browsers still list some places under their old names.
+const MODERN_NAMES: Record<string, string> = {
+  Calcutta: "Kolkata",
+  Kiev: "Kyiv",
+  Saigon: "Ho Chi Minh City",
+  Katmandu: "Kathmandu",
+  Rangoon: "Yangon",
+};
+
 export function timeZoneCity(timeZone: string): string {
-  return (timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ");
+  const city = (timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ");
+  return MODERN_NAMES[city] ?? city;
 }
 
 // "London (GMT+1)", using the offset in effect on the given date.
