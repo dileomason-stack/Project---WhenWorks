@@ -45,24 +45,36 @@ export default function ReviewSchedule({
 }: Props) {
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [tab, setTab] = useState<"mine" | "read">("read");
-  const selected = blocks.find((b) => b.uid === selectedUid) ?? null;
   const invalid = blocks.some((b) => b.end <= b.start);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (selectedUid ? setSelectedUid(null) : onClose());
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return selectedUid ? setSelectedUid(null) : onClose();
+      // Delete or Backspace removes the selected event, unless you're typing in a box.
+      const typing = (e.target as HTMLElement)?.closest?.("input, select, textarea");
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedUid && !typing) {
+        e.preventDefault();
+        setBlocks((prev) => prev.filter((b) => b.uid !== selectedUid));
+        setSelectedUid(null);
+      }
+    };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [onClose, selectedUid]);
+  }, [onClose, selectedUid, setBlocks]);
 
-  const update = (patch: Partial<EditableBlock>) =>
-    setBlocks((prev) => prev.map((b) => (b.uid === selectedUid ? { ...b, ...patch } : b)));
+  const change = (uid: string, patch: Partial<EditableBlock>) =>
+    setBlocks((prev) => prev.map((b) => (b.uid === uid ? { ...b, ...patch } : b)));
+  const remove = (uid: string) => {
+    setBlocks((prev) => prev.filter((b) => b.uid !== uid));
+    setSelectedUid(null);
+  };
 
-  function addAt(day: number, start: number) {
-    const block = { uid: newUid(), day, start, end: start + 60, label: "" };
+  function create(day: number, start: number, end: number) {
+    const block = { uid: newUid(), day, start, end, label: "" };
     setBlocks((prev) => [...prev, block]);
     setSelectedUid(block.uid);
   }
@@ -73,7 +85,8 @@ export default function ReviewSchedule({
         <div>
           <h2 className="text-lg font-bold">Does this match {forOther ? "their" : "your"} calendar?</h2>
           <p className="text-sm text-stone-500">
-            Tap an event to fix or delete it, or to mark it as just once. Tap an empty spot to add something it missed.
+            Tap an event to edit or delete it. Drag it to move it, or drag its bottom edge to change when it ends. Tap or
+            drag on an empty spot to add something it missed.
           </p>
         </div>
         <Button variant="ghost" onClick={onClose} aria-label="Close">
@@ -123,80 +136,24 @@ export default function ReviewSchedule({
                 ))}
               </div>
             )}
-            <CalendarMockup blocks={blocks} selectedUid={selectedUid} onSelect={setSelectedUid} onAddAt={addAt} />
+            <CalendarMockup
+              blocks={blocks}
+              selectedUid={selectedUid}
+              onSelect={setSelectedUid}
+              onChange={change}
+              onCreate={create}
+              renderEditor={(block) => (
+                <EventEditor
+                  block={block}
+                  onChange={(patch) => change(block.uid, patch)}
+                  onDelete={() => remove(block.uid)}
+                  onClose={() => setSelectedUid(null)}
+                />
+              )}
+            />
           </div>
         </section>
       </div>
-
-      {selected && (
-        <div className="border-t border-stone-200 bg-white px-4 py-3 sm:px-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={selected.label ?? ""}
-              onChange={(e) => update({ label: e.target.value })}
-              placeholder="Event name"
-              maxLength={40}
-              autoFocus={!selected.label}
-              className="min-w-40 flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
-            />
-            <div className="inline-flex rounded-lg border border-stone-300 p-0.5 text-sm">
-              <button
-                type="button"
-                onClick={() => update({ date: undefined })}
-                className={`rounded-md px-2.5 py-1.5 font-medium ${!selected.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
-              >
-                Every week
-              </button>
-              <button
-                type="button"
-                onClick={() => !selected.date && update({ date: dateInThisWeek(selected.day) })}
-                className={`rounded-md px-2.5 py-1.5 font-medium ${selected.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
-              >
-                Just once
-              </button>
-            </div>
-            {selected.date ? (
-              <input
-                type="date"
-                value={selected.date}
-                onChange={(e) => isISODate(e.target.value) && update({ date: e.target.value, day: weekdayOf(e.target.value) })}
-                className="rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm"
-                aria-label="Date"
-              />
-            ) : (
-              <select
-                value={selected.day}
-                onChange={(e) => update({ day: Number(e.target.value) })}
-                className="rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm"
-                aria-label="Day"
-              >
-                {DAY_NAMES.map((d, i) => (
-                  <option key={d} value={i}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            )}
-            <TimeInput value={selected.start} onChange={(start) => update({ start })} label="Start time" />
-            <span className="text-sm text-stone-400">to</span>
-            <TimeInput value={selected.end} onChange={(end) => update({ end })} label="End time" />
-            <Button
-              variant="ghost"
-              className="text-red-600 hover:bg-red-50 hover:text-red-700"
-              onClick={() => {
-                setBlocks((prev) => prev.filter((b) => b.uid !== selectedUid));
-                setSelectedUid(null);
-              }}
-            >
-              Delete
-            </Button>
-            <Button variant="secondary" onClick={() => setSelectedUid(null)}>
-              Done
-            </Button>
-          </div>
-          {selected.end <= selected.start && <p className="mt-1 text-xs text-red-600">End time must be after the start.</p>}
-        </div>
-      )}
 
       <footer className="flex flex-wrap items-center gap-3 border-t border-stone-200 bg-white px-4 py-3 sm:px-6">
         <input
@@ -235,6 +192,94 @@ export default function ReviewSchedule({
   );
 }
 
+// A small editor for one event, like the popup Google Calendar shows when you click an event.
+function EventEditor({
+  block,
+  onChange,
+  onDelete,
+  onClose,
+}: {
+  block: EditableBlock;
+  onChange: (patch: Partial<EditableBlock>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-t-2xl border border-stone-200 bg-white p-4 shadow-2xl md:rounded-2xl">
+      <div className="flex items-center gap-2">
+        <input
+          value={block.label ?? ""}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Add a title"
+          maxLength={40}
+          autoFocus={!block.label}
+          className="min-w-0 flex-1 border-b-2 border-stone-200 py-1 text-lg font-semibold outline-none focus:border-emerald-600"
+        />
+        <button onClick={onClose} className="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100" aria-label="Close">
+          ✕
+        </button>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        {block.date ? (
+          <input
+            type="date"
+            value={block.date}
+            onChange={(e) => isISODate(e.target.value) && onChange({ date: e.target.value, day: weekdayOf(e.target.value) })}
+            className="w-full rounded-lg border border-stone-300 bg-white px-2 py-1.5"
+            aria-label="Date"
+          />
+        ) : (
+          <select
+            value={block.day}
+            onChange={(e) => onChange({ day: Number(e.target.value) })}
+            className="w-full rounded-lg border border-stone-300 bg-white px-2 py-1.5"
+            aria-label="Day"
+          >
+            {DAY_NAMES.map((d, i) => (
+              <option key={d} value={i}>
+                {d}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="flex items-center gap-2">
+          <TimeInput value={block.start} onChange={(start) => onChange({ start })} label="Start time" />
+          <span className="text-stone-400">–</span>
+          <TimeInput value={block.end} onChange={(end) => onChange({ end })} label="End time" />
+        </div>
+      </div>
+      {block.end <= block.start && <p className="text-xs text-red-600">End time must be after the start.</p>}
+
+      <div className="inline-flex rounded-lg border border-stone-300 p-0.5 text-sm">
+        <button
+          type="button"
+          onClick={() => onChange({ date: undefined })}
+          className={`rounded-md px-2.5 py-1 font-medium ${!block.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
+        >
+          Every week
+        </button>
+        <button
+          type="button"
+          onClick={() => !block.date && onChange({ date: dateInThisWeek(block.day) })}
+          className={`rounded-md px-2.5 py-1 font-medium ${block.date ? "bg-stone-900 text-white" : "text-stone-600"}`}
+        >
+          Just once
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-stone-100 pt-3">
+        <button onClick={onDelete} className="rounded-lg px-2 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50">
+          🗑 Delete
+        </button>
+        <Button onClick={onClose} className="py-1.5">
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TimeInput({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
   return (
     <input
@@ -246,7 +291,7 @@ function TimeInput({ value, onChange, label }: { value: number; onChange: (v: nu
         if (v !== null) onChange(v);
       }}
       aria-label={label}
-      className="rounded-lg border border-stone-300 px-2 py-2 text-sm"
+      className="min-w-0 flex-1 rounded-lg border border-stone-300 px-2 py-1.5 text-sm"
     />
   );
 }
